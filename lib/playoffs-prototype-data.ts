@@ -340,8 +340,8 @@ const placeholderSlot = (
 
 const east8Placeholder = placeholderSlot(
   "east-8",
-  "Winner of Hornets vs 76ers/Magic loser",
-  "Winner of Hornets vs 76ers/Magic loser",
+  "East 8 Seed",
+  "East 8 Seed",
   8,
   ["cha", "phi", "orl"],
   "East 8 seed settles Friday",
@@ -349,8 +349,8 @@ const east8Placeholder = placeholderSlot(
 
 const east7Placeholder = placeholderSlot(
   "east-7",
-  "Winner of 76ers vs Magic",
-  "Winner of 76ers vs Magic",
+  "East 7 Seed",
+  "East 7 Seed",
   7,
   ["phi", "orl"],
   "Tips tonight on Prime",
@@ -358,8 +358,8 @@ const east7Placeholder = placeholderSlot(
 
 const west8Placeholder = placeholderSlot(
   "west-8",
-  "Winner of Suns vs Clippers/Warriors winner",
-  "Winner of Suns vs Clippers/Warriors winner",
+  "West 8 Seed",
+  "West 8 Seed",
   8,
   ["phx", "lac", "gsw"],
   "West 8 seed settles Friday",
@@ -367,8 +367,8 @@ const west8Placeholder = placeholderSlot(
 
 const eastSemisTop = placeholderSlot(
   "east-semis-top",
-  "Winner of Pistons vs East 8",
-  "Winner of Pistons vs East 8",
+  "DET / East 8",
+  "DET / East 8",
   undefined,
   ["det", "cha", "phi", "orl"],
   "Projected May 4",
@@ -376,8 +376,8 @@ const eastSemisTop = placeholderSlot(
 
 const eastSemisBottom = placeholderSlot(
   "east-semis-bottom",
-  "Winner of Cavaliers vs Raptors",
-  "Winner of Cavaliers vs Raptors",
+  "CLE / TOR",
+  "CLE / TOR",
   undefined,
   ["cle", "tor"],
   "Projected May 4",
@@ -385,8 +385,8 @@ const eastSemisBottom = placeholderSlot(
 
 const eastSemisMiddle = placeholderSlot(
   "east-semis-middle",
-  "Winner of Celtics vs East 7",
-  "Winner of Celtics vs East 7",
+  "BOS / East 7",
+  "BOS / East 7",
   undefined,
   ["bos", "phi", "orl"],
   "Projected May 5",
@@ -394,8 +394,8 @@ const eastSemisMiddle = placeholderSlot(
 
 const eastSemisLower = placeholderSlot(
   "east-semis-lower",
-  "Winner of Knicks vs Hawks",
-  "Winner of Knicks vs Hawks",
+  "NYK / ATL",
+  "NYK / ATL",
   undefined,
   ["nyk", "atl"],
   "Projected May 5",
@@ -403,8 +403,8 @@ const eastSemisLower = placeholderSlot(
 
 const westSemisTop = placeholderSlot(
   "west-semis-top",
-  "Winner of Thunder vs West 8",
-  "Winner of Thunder vs West 8",
+  "OKC / West 8",
+  "OKC / West 8",
   undefined,
   ["okc", "phx", "lac", "gsw"],
   "Projected May 4",
@@ -412,8 +412,8 @@ const westSemisTop = placeholderSlot(
 
 const westSemisBottom = placeholderSlot(
   "west-semis-bottom",
-  "Winner of Lakers vs Rockets",
-  "Winner of Lakers vs Rockets",
+  "LAL / HOU",
+  "LAL / HOU",
   undefined,
   ["lal", "hou"],
   "Projected May 4",
@@ -421,8 +421,8 @@ const westSemisBottom = placeholderSlot(
 
 const westSemisMiddle = placeholderSlot(
   "west-semis-middle",
-  "Winner of Spurs vs Trail Blazers",
-  "Winner of Spurs vs Trail Blazers",
+  "SAS / POR",
+  "SAS / POR",
   undefined,
   ["sas", "por"],
   "Projected May 5",
@@ -430,8 +430,8 @@ const westSemisMiddle = placeholderSlot(
 
 const westSemisLower = placeholderSlot(
   "west-semis-lower",
-  "Winner of Nuggets vs Wolves",
-  "Winner of Nuggets vs Wolves",
+  "DEN / MIN",
+  "DEN / MIN",
   undefined,
   ["den", "min"],
   "Projected May 5",
@@ -439,8 +439,8 @@ const westSemisLower = placeholderSlot(
 
 const eastFinalsTop = placeholderSlot(
   "east-finals-top",
-  "Winner of East Semis A",
-  "Winner of East Semis A",
+  "East Semis A",
+  "East Semis A",
   undefined,
   ["det", "cle", "tor", "cha", "phi", "orl"],
   "Projected May 19",
@@ -448,8 +448,8 @@ const eastFinalsTop = placeholderSlot(
 
 const eastFinalsBottom = placeholderSlot(
   "east-finals-bottom",
-  "Winner of East Semis B",
-  "Winner of East Semis B",
+  "East Semis B",
+  "East Semis B",
   undefined,
   ["bos", "nyk", "atl", "phi", "orl"],
   "Projected May 20",
@@ -457,8 +457,8 @@ const eastFinalsBottom = placeholderSlot(
 
 const westFinalsTop = placeholderSlot(
   "west-finals-top",
-  "Winner of West Semis A",
-  "Winner of West Semis A",
+  "West Semis A",
+  "West Semis A",
   undefined,
   ["okc", "lal", "hou", "phx", "lac", "gsw"],
   "Projected May 19",
@@ -466,8 +466,8 @@ const westFinalsTop = placeholderSlot(
 
 const westFinalsBottom = placeholderSlot(
   "west-finals-bottom",
-  "Winner of West Semis B",
-  "Winner of West Semis B",
+  "West Semis B",
+  "West Semis B",
   undefined,
   ["sas", "por", "den", "min"],
   "Projected May 20",
@@ -475,8 +475,8 @@ const westFinalsBottom = placeholderSlot(
 
 const finalsEast = placeholderSlot(
   "finals-east",
-  "Winner of East Finals",
-  "Winner of East Finals",
+  "East Champion",
+  "East Champion",
   undefined,
   ["det", "bos", "nyk", "cle", "tor", "atl", "phi", "orl", "cha"],
   "Projected June 3",
@@ -484,8 +484,8 @@ const finalsEast = placeholderSlot(
 
 const finalsWest = placeholderSlot(
   "finals-west",
-  "Winner of West Finals",
-  "Winner of West Finals",
+  "West Champion",
+  "West Champion",
   undefined,
   ["okc", "sas", "den", "lal", "hou", "min", "por", "phx", "lac", "gsw"],
   "Projected June 3",
@@ -1698,7 +1698,7 @@ export const communityActivity: PrototypeActivityItem[] = [
     id: "activity-2",
     user: "Jordan",
     action: "commented on",
-    detail: "Celtics vs Winner of 76ers vs Magic",
+    detail: "Celtics vs East 7 Seed",
     tone: "comment",
     time: "6m ago",
     seriesId: "east-r1-2",
@@ -1943,6 +1943,5 @@ export const prototypeData = {
 export const primaryTabs = [
   { id: "home", label: "Home" },
   { id: "bracket", label: "Bracket" },
-  { id: "leaderboard", label: "Leaders" },
+  { id: "leaderboard", label: "Leaderboard" },
 ] as const;
-

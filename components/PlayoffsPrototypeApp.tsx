@@ -35,17 +35,29 @@ type DetailScreen =
       returnTo: PrimaryTab;
     }
   | {
+      type: "thread";
+      seriesId: string;
+      returnTo: PrimaryTab;
+    }
+  | {
       type: "friend";
       userId: string;
       returnTo: PrimaryTab;
     };
 
+type SeriesActivityItem = {
+  id: string;
+  title: string;
+  detail: string;
+  tone: "pick" | "wager" | "comment";
+};
+
 const wagerOptions = [50, 120, 250, 500];
 const previewSeriesIds = ["east-r1-2", "west-r1-2", "west-r1-4"];
 const quickStats = [
-  { label: "Playoff teams locked", value: "13/16" },
-  { label: "Bracket slots still moving", value: "3" },
-  { label: "Most active hub", value: "18.9K" },
+  { label: "Teams locked", value: "13/16" },
+  { label: "Active hubs", value: "9" },
+  { label: "Most discussed", value: "18.9K" },
 ];
 
 const cx = (...classes: Array<string | false | null | undefined>) =>
@@ -56,6 +68,12 @@ const toneClasses: Record<PrototypeSeries["statusTone"], string> = {
   watch: "border-sky-400/30 bg-sky-500/15 text-sky-100",
   locked: "border-emerald-400/30 bg-emerald-500/15 text-emerald-100",
   pending: "border-white/12 bg-white/[0.06] text-slate-200",
+};
+
+const activityToneClasses: Record<SeriesActivityItem["tone"], string> = {
+  pick: "border-sky-400/25 bg-sky-500/12 text-sky-100",
+  wager: "border-amber-400/25 bg-amber-500/12 text-amber-100",
+  comment: "border-violet-400/25 bg-violet-500/12 text-violet-100",
 };
 
 const pickStatusClasses: Record<
@@ -108,9 +126,9 @@ function getSeriesGradient(series: PrototypeSeries) {
 
   return {
     backgroundImage: `
-      linear-gradient(140deg, ${hexToRgba(left.primary, 0.25)}, rgba(8, 12, 24, 0.98) 52%, ${hexToRgba(right.primary, 0.25)}),
-      radial-gradient(circle at top left, ${hexToRgba(left.secondary, 0.18)}, transparent 40%),
-      radial-gradient(circle at bottom right, ${hexToRgba(right.secondary, 0.14)}, transparent 44%)
+      linear-gradient(140deg, ${hexToRgba(left.primary, 0.22)}, rgba(7, 11, 22, 0.98) 52%, ${hexToRgba(right.primary, 0.22)}),
+      radial-gradient(circle at top left, ${hexToRgba(left.secondary, 0.14)}, transparent 38%),
+      radial-gradient(circle at bottom right, ${hexToRgba(right.secondary, 0.12)}, transparent 40%)
     `,
   };
 }
@@ -140,6 +158,101 @@ function aggregateReactions(comments: PrototypeComment[]) {
     emoji,
     count: count > 999 ? `${(count / 1000).toFixed(1)}K` : `${count}`,
   }));
+}
+
+function getCommunityFavorite(series: PrototypeSeries) {
+  if (series.community.teamA >= series.community.teamB) {
+    return `${getSlotLabel(series.teamA)} ${series.community.teamA}%`;
+  }
+
+  return `${getSlotLabel(series.teamB)} ${series.community.teamB}%`;
+}
+
+function getFriendLean(series: PrototypeSeries) {
+  const sideA = series.friends.filter((friend) => friend.side === "teamA");
+  const sideB = series.friends.filter((friend) => friend.side === "teamB");
+  const leaningSide = sideA.length >= sideB.length ? "teamA" : "teamB";
+  const leaningFriends = series.friends.filter((friend) => friend.side === leaningSide);
+
+  if (leaningFriends.length === 0) {
+    return "Friends are split";
+  }
+
+  const names = leaningFriends.slice(0, 2).map((friend) => friend.name).join(", ");
+  const overflow =
+    leaningFriends.length > 2 ? ` +${leaningFriends.length - 2}` : "";
+
+  return `${names}${overflow} on ${getWinningSlotLabel(series, leaningSide)}`;
+}
+
+function buildSeriesActivity(
+  series: PrototypeSeries,
+  comments: PrototypeComment[],
+  activityFeed: typeof communityActivity,
+) {
+  const items: SeriesActivityItem[] = [];
+
+  const directActivity = activityFeed
+    .filter((item) => item.seriesId === series.id)
+    .slice(0, 3);
+
+  for (const item of directActivity) {
+    items.push({
+      id: item.id,
+      title: `${item.user} ${item.action}`,
+      detail: item.detail,
+      tone:
+        item.tone === "wager"
+          ? "wager"
+          : item.tone === "comment"
+            ? "comment"
+            : "pick",
+    });
+  }
+
+  if (!items.some((item) => item.tone === "pick")) {
+    const friendPick = series.friends.find(
+      (friend) => !friend.confidence.includes("Coins"),
+    );
+
+    if (friendPick) {
+      items.push({
+        id: `${series.id}-friend-pick`,
+        title: `${friendPick.name} picked ${getWinningSlotLabel(
+          series,
+          friendPick.side,
+        )}`,
+        detail: friendPick.confidence,
+        tone: "pick",
+      });
+    }
+  }
+
+  if (!items.some((item) => item.tone === "wager")) {
+    const friendWager = series.friends.find((friend) =>
+      friend.confidence.includes("Coins"),
+    );
+
+    if (friendWager) {
+      items.push({
+        id: `${series.id}-friend-wager`,
+        title: `${friendWager.name} wagered ${friendWager.confidence}`,
+        detail: friendWager.note,
+        tone: "wager",
+      });
+    }
+  }
+
+  if (!items.some((item) => item.tone === "comment") && comments[0]) {
+    items.push({
+      id: `${series.id}-comment-preview`,
+      title: `${comments[0].user} commented on this series`,
+      detail: comments[0].text,
+      tone: "comment",
+    });
+  }
+
+  return items.slice(0, 3);
 }
 
 function HomeIcon({ active }: { active: boolean }) {
@@ -249,6 +362,23 @@ function CoinsIcon() {
   );
 }
 
+function ChatIcon() {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      aria-hidden="true"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4.5 5.5h11v7.5h-5L7.5 15.5v-2.5h-3z" />
+    </svg>
+  );
+}
+
 function SurfaceCard({
   children,
   className,
@@ -261,7 +391,7 @@ function SurfaceCard({
   return (
     <div
       className={cx(
-        "rounded-[28px] border border-white/10 bg-white/[0.05] p-4 shadow-[0_18px_60px_rgba(2,6,23,0.55)] backdrop-blur",
+        "rounded-[20px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.065),rgba(255,255,255,0.035))] p-3 shadow-[0_12px_30px_rgba(2,6,23,0.34)] backdrop-blur",
         className,
       )}
       style={style}
@@ -283,26 +413,26 @@ function SectionHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-3 flex items-end justify-between gap-3">
-      <div>
+    <div className="mb-1.5 flex items-start justify-between gap-3">
+      <div className="min-w-0">
         {eyebrow ? (
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-400">
             {eyebrow}
           </p>
         ) : null}
-        <h2 className="font-display text-[1.65rem] uppercase leading-none tracking-[0.05em] text-white">
-          {title}
-        </h2>
-        {subtitle ? <p className="mt-1 text-sm text-slate-300">{subtitle}</p> : null}
+        <h2 className="text-[14px] font-semibold text-white">{title}</h2>
+        {subtitle ? (
+          <p className="mt-0.5 text-[11px] leading-5 text-slate-400">{subtitle}</p>
+        ) : null}
       </div>
-      {action}
+      <div className="shrink-0">{action}</div>
     </div>
   );
 }
 
 function SlotBadge({ slot, size = "md" }: { slot: PrototypeSlot; size?: "md" | "lg" }) {
   const teams = getSlotTeams(slot);
-  const badgeSize = size === "lg" ? "h-12 w-12" : "h-10 w-10";
+  const badgeSize = size === "lg" ? "h-10 w-10" : "h-8 w-8";
 
   if (slot.type === "team" && slot.teamId) {
     return (
@@ -315,8 +445,8 @@ function SlotBadge({ slot, size = "md" }: { slot: PrototypeSlot; size?: "md" | "
         <Image
           src={teamMap[slot.teamId].logo}
           alt={`${slot.label} logo`}
-          width={size === "lg" ? 36 : 30}
-          height={size === "lg" ? 36 : 30}
+          width={size === "lg" ? 30 : 24}
+          height={size === "lg" ? 30 : 24}
           unoptimized
           className="h-auto w-auto"
         />
@@ -335,11 +465,11 @@ function SlotBadge({ slot, size = "md" }: { slot: PrototypeSlot; size?: "md" | "
       style={{
         backgroundImage: `linear-gradient(145deg, ${hexToRgba(
           colors.primary,
-          0.88,
-        )}, ${hexToRgba(colors.secondary, 0.88)})`,
+          0.86,
+        )}, ${hexToRgba(colors.secondary, 0.86)})`,
       }}
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.24),transparent_45%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.22),transparent_45%)]" />
       <div className="relative flex h-full items-center justify-center">
         <div className="flex items-center">
           {teams.slice(0, 2).map((team, index) => (
@@ -353,15 +483,15 @@ function SlotBadge({ slot, size = "md" }: { slot: PrototypeSlot; size?: "md" | "
               <Image
                 src={team.logo}
                 alt={`${team.shortName} logo`}
-                width={size === "lg" ? 22 : 18}
-                height={size === "lg" ? 22 : 18}
+                width={size === "lg" ? 18 : 14}
+                height={size === "lg" ? 18 : 14}
                 unoptimized
                 className="h-auto w-auto"
               />
             </div>
           ))}
           {teams.length > 2 ? (
-            <span className="-ml-2 rounded-full border border-white/20 bg-slate-950/80 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+            <span className="-ml-2 rounded-full border border-white/20 bg-slate-950/85 px-1.5 py-0.5 text-[10px] font-semibold text-white">
               +{teams.length - 2}
             </span>
           ) : null}
@@ -383,24 +513,28 @@ function SlotRow({
   return (
     <div
       className={cx(
-        "flex items-center gap-3 rounded-[22px] border border-white/10 bg-black/20",
-        compact ? "p-3" : "p-3.5",
+        "flex items-center gap-2 rounded-[16px] border border-white/10 bg-black/20",
+        compact ? "p-2" : "p-2.5",
       )}
     >
       <SlotBadge slot={slot} size={compact ? "md" : "lg"} />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           {slot.seed ? (
-            <span className="rounded-full border border-white/10 bg-white/[0.08] px-2 py-0.5 text-[11px] font-semibold text-slate-200">
+            <span className="rounded-full border border-white/10 bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-semibold text-slate-200">
               ({slot.seed})
             </span>
           ) : null}
-          <p className="truncate text-sm font-semibold text-white">{slot.label}</p>
+          <p className="truncate text-[13px] font-semibold text-white">
+            {getSlotLabel(slot)}
+          </p>
         </div>
-        {slot.note ? <p className="mt-1 text-xs text-slate-400">{slot.note}</p> : null}
+        {slot.note ? (
+          <p className="mt-0.5 truncate text-[10px] text-slate-400">{slot.note}</p>
+        ) : null}
       </div>
       {typeof percentage === "number" ? (
-        <div className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold text-slate-100">
+        <div className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-[10px] font-semibold text-slate-100">
           {percentage}%
         </div>
       ) : null}
@@ -408,40 +542,48 @@ function SlotRow({
   );
 }
 
-function ProgressBar({
-  leftLabel,
-  rightLabel,
-  leftValue,
-  rightValue,
+function InfoRow({
+  label,
+  value,
 }: {
-  leftLabel: string;
-  rightLabel: string;
-  leftValue: number;
-  rightValue: number;
+  label: string;
+  value: string;
 }) {
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-xs text-slate-300">
-        <span>{leftLabel}</span>
-        <span>{rightLabel}</span>
-      </div>
-      <div className="h-3 overflow-hidden rounded-full bg-white/[0.06]">
-        <div className="flex h-full">
-          <div
-            className="h-full rounded-r-full bg-gradient-to-r from-sky-400 to-cyan-300"
-            style={{ width: `${leftValue}%` }}
-          />
-          <div
-            className="h-full bg-gradient-to-r from-amber-300 to-orange-400"
-            style={{ width: `${rightValue}%` }}
-          />
-        </div>
-      </div>
-      <div className="flex items-center justify-between text-[11px] font-semibold text-slate-100">
-        <span>{leftValue}%</span>
-        <span>{rightValue}%</span>
-      </div>
+    <div className="flex items-start justify-between gap-3 rounded-[16px] border border-white/8 bg-black/20 px-3 py-2">
+      <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">{label}</p>
+      <p className="max-w-[68%] text-right text-[13px] font-medium leading-5 text-slate-100">
+        {value}
+      </p>
     </div>
+  );
+}
+
+function ActionButton({
+  label,
+  tone,
+  icon,
+  onClick,
+}: {
+  label: string;
+  tone: "primary" | "secondary";
+  icon?: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cx(
+        "flex min-h-[44px] items-center justify-center gap-2 rounded-[16px] px-3 py-2.5 text-[13px] font-semibold transition active:scale-[0.98]",
+        tone === "primary"
+          ? "bg-white text-slate-950"
+          : "border border-white/14 bg-white/[0.05] text-white",
+      )}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -456,32 +598,52 @@ function MiniSeriesButton({
     <button
       type="button"
       onClick={onOpen}
-      className="w-full rounded-[24px] border border-white/10 bg-white/[0.04] p-3 text-left transition active:scale-[0.99]"
+      className="w-full rounded-[18px] border border-white/10 bg-white/[0.04] p-2.5 text-left transition active:scale-[0.99]"
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1 space-y-2">
-          <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+            {series.round}
+          </p>
+          <div className="flex items-center gap-2.5">
             <SlotBadge slot={series.teamA} />
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white">
+              <p className="truncate text-[13px] font-semibold text-white">
                 {getSlotLabel(series.teamA)}
               </p>
-              <p className="text-xs text-slate-400">{series.community.teamA}% picked</p>
+              <p className="text-[10px] text-slate-400">
+                {series.community.teamA}% picked
+              </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <SlotBadge slot={series.teamB} />
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white">
+              <p className="truncate text-[13px] font-semibold text-white">
                 {getSlotLabel(series.teamB)}
               </p>
-              <p className="text-xs text-slate-400">{series.community.teamB}% picked</p>
+              <p className="text-[10px] text-slate-400">
+                {series.community.teamB}% picked
+              </p>
             </div>
           </div>
         </div>
-        <ChevronIcon />
+        <div className="flex flex-col items-end gap-1.5">
+          <span
+            className={cx(
+              "rounded-full border px-2 py-1 text-[10px] font-semibold",
+              toneClasses[series.statusTone],
+            )}
+          >
+            {series.score}
+          </span>
+          <ChevronIcon />
+        </div>
       </div>
-      <p className="mt-3 text-xs text-slate-400">{series.activeLabel}</p>
+      <div className="mt-2 flex items-center justify-between text-[10px] text-slate-400">
+        <span>{series.activeLabel}</span>
+        <span>{series.fansDiscussing} discussing</span>
+      </div>
     </button>
   );
 }
@@ -496,55 +658,47 @@ function FeaturedSeriesCard({
   onPredict: () => void;
 }) {
   return (
-    <SurfaceCard style={getSeriesGradient(series)} className="overflow-hidden p-0">
-      <div className="p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-300">
-              Featured Series
-            </p>
-            <p className="mt-1 text-sm text-slate-200">{series.cardNote}</p>
-          </div>
-          <span
-            className={cx(
-              "rounded-full border px-3 py-1 text-[11px] font-semibold",
-              toneClasses[series.statusTone],
-            )}
-          >
-            {series.activeLabel}
-          </span>
+    <SurfaceCard style={getSeriesGradient(series)} className="p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+            Featured Series
+          </p>
+          <p className="mt-0.5 truncate text-[15px] font-semibold text-white">
+            {getSlotLabel(series.teamA)} vs {getSlotLabel(series.teamB)}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-300">
+            {series.activeLabel} • {series.fansDiscussing} discussing
+          </p>
         </div>
-        <div className="mt-4 space-y-3">
-          <SlotRow slot={series.teamA} percentage={series.community.teamA} compact />
-          <SlotRow slot={series.teamB} percentage={series.community.teamB} compact />
+        <span
+          className={cx(
+            "rounded-full border px-2 py-1 text-[10px] font-semibold",
+            toneClasses[series.statusTone],
+          )}
+        >
+          {series.status}
+        </span>
+      </div>
+      <div className="mt-2.5 space-y-1.5">
+        <SlotRow slot={series.teamA} percentage={series.community.teamA} compact />
+        <SlotRow slot={series.teamB} percentage={series.community.teamB} compact />
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="rounded-[16px] border border-white/10 bg-black/25 px-3 py-2">
+          <p className="text-[9px] uppercase tracking-[0.14em] text-slate-400">Series</p>
+          <p className="mt-0.5 text-[13px] font-semibold text-white">{series.score}</p>
         </div>
-        <div className="mt-4 flex items-center justify-between gap-3 rounded-[22px] border border-white/10 bg-black/30 p-3">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Series Score</p>
-            <p className="mt-1 text-2xl font-semibold text-white">{series.score}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Fans discussing</p>
-            <p className="mt-1 text-lg font-semibold text-white">{series.fansDiscussing}</p>
-          </div>
+        <div className="rounded-[16px] border border-white/10 bg-black/25 px-3 py-2">
+          <p className="text-[9px] uppercase tracking-[0.14em] text-slate-400">Friends</p>
+          <p className="mt-0.5 truncate text-[13px] font-semibold text-white">
+            {getFriendLean(series)}
+          </p>
         </div>
-        <p className="mt-4 text-sm leading-6 text-slate-100">{series.preview}</p>
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={onOpenSeries}
-            className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition active:scale-[0.98]"
-          >
-            Open Series Hub
-          </button>
-          <button
-            type="button"
-            onClick={onPredict}
-            className="rounded-2xl border border-white/16 bg-black/30 px-4 py-3 text-sm font-semibold text-white transition active:scale-[0.98]"
-          >
-            Predict Next Game
-          </button>
-        </div>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <ActionButton label="Open Hub" tone="primary" onClick={onOpenSeries} />
+        <ActionButton label="Predict" tone="secondary" onClick={onPredict} />
       </div>
     </SurfaceCard>
   );
@@ -563,45 +717,32 @@ function BracketCard({
       onClick={onOpen}
       className="w-full text-left transition active:scale-[0.99]"
     >
-      <SurfaceCard style={getSeriesGradient(series)} className="p-4">
+      <SurfaceCard style={getSeriesGradient(series)} className="p-2.5">
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
             <span>{series.conference}</span>
-            <span className="text-slate-500">/</span>
+            <span className="text-slate-500">•</span>
             <span>{series.round}</span>
           </div>
           <span
             className={cx(
-              "rounded-full border px-3 py-1 text-[11px] font-semibold",
+              "rounded-full border px-2 py-1 text-[10px] font-semibold",
               toneClasses[series.statusTone],
             )}
           >
             {series.status}
           </span>
         </div>
-
-        <div className="mt-4 space-y-3">
+        <div className="mt-2 space-y-1.5">
           <SlotRow slot={series.teamA} percentage={series.community.teamA} compact />
           <SlotRow slot={series.teamB} percentage={series.community.teamB} compact />
         </div>
-
-        <div className="mt-4 rounded-[22px] border border-white/10 bg-black/25 p-3">
-          <div className="flex items-center justify-between text-xs text-slate-300">
-            <span>Series</span>
-            <span className="font-semibold text-white">{series.score}</span>
-          </div>
-          <div className="mt-3">
-            <ProgressBar
-              leftLabel={getSlotLabel(series.teamA)}
-              rightLabel={getSlotLabel(series.teamB)}
-              leftValue={series.community.teamA}
-              rightValue={series.community.teamB}
-            />
-          </div>
+        <div className="mt-2 flex items-center justify-between text-[11px] text-slate-300">
+          <span className="font-semibold text-white">Series {series.score}</span>
+          <span>{series.fansDiscussing} discussing</span>
         </div>
-
-        <div className="mt-4 flex items-center justify-between gap-4">
-          <p className="text-sm leading-6 text-slate-200">{series.cardNote}</p>
+        <div className="mt-1 flex items-center justify-between gap-3 text-[10px] text-slate-400">
+          <span>{series.activeLabel}</span>
           <ChevronIcon />
         </div>
       </SurfaceCard>
@@ -633,7 +774,9 @@ function PlayoffsPrototypeApp() {
 
   const selectedSeriesId =
     detailScreen &&
-    (detailScreen.type === "series" || detailScreen.type === "prediction")
+    (detailScreen.type === "series" ||
+      detailScreen.type === "prediction" ||
+      detailScreen.type === "thread")
       ? detailScreen.seriesId
       : prototypeData.home.featuredSeriesId;
   const selectedSeries = seriesById[selectedSeriesId];
@@ -645,6 +788,13 @@ function PlayoffsPrototypeApp() {
   const visibleComments = commentsBySeries[selectedSeries.id] ?? selectedSeries.comments;
   const userPrediction = predictions[selectedSeries.id];
   const reactionTotals = aggregateReactions(visibleComments);
+  const seriesActivity = buildSeriesActivity(
+    selectedSeries,
+    visibleComments,
+    activityFeed,
+  );
+  const currentReturnTo =
+    detailScreen && detailScreen.type !== "friend" ? detailScreen.returnTo : activeTab;
 
   const openSeries = (seriesId: string, returnTo: PrimaryTab) => {
     setDetailScreen({ type: "series", seriesId, returnTo });
@@ -658,6 +808,10 @@ function PlayoffsPrototypeApp() {
     setDetailScreen({ type: "prediction", seriesId, returnTo });
   };
 
+  const openThread = (seriesId: string, returnTo: PrimaryTab) => {
+    setDetailScreen({ type: "thread", seriesId, returnTo });
+  };
+
   const openFriendBracket = (userId: string) => {
     setDetailScreen({ type: "friend", userId, returnTo: "leaderboard" });
   };
@@ -667,7 +821,7 @@ function PlayoffsPrototypeApp() {
       return;
     }
 
-    if (detailScreen.type === "prediction") {
+    if (detailScreen.type === "prediction" || detailScreen.type === "thread") {
       setDetailScreen({
         type: "series",
         seriesId: detailScreen.seriesId,
@@ -697,7 +851,7 @@ function PlayoffsPrototypeApp() {
         time: "Just now",
         seriesId,
       },
-      ...current.slice(0, 5),
+      ...current.slice(0, 7),
     ]);
   };
 
@@ -723,7 +877,10 @@ function PlayoffsPrototypeApp() {
     }));
     setCoins((current) => current - delta);
     setPredictionMessage(
-      `Locked in ${draftWager} Coins on ${getWinningSlotLabel(series, draftWinner)} for the next game.`,
+      `Locked in ${draftWager} Coins on ${getWinningSlotLabel(
+        series,
+        draftWinner,
+      )} for the next game.`,
     );
     updateActivity(
       "You",
@@ -762,7 +919,13 @@ function PlayoffsPrototypeApp() {
       ...current,
       [selectedSeries.id]: "",
     }));
-    updateActivity("You", "commented on", `${getSlotLabel(selectedSeries.teamA)} vs ${getSlotLabel(selectedSeries.teamB)}`, "comment", selectedSeries.id);
+    updateActivity(
+      "You",
+      "commented on",
+      `${getSlotLabel(selectedSeries.teamA)} vs ${getSlotLabel(selectedSeries.teamB)}`,
+      "comment",
+      selectedSeries.id,
+    );
   };
 
   const reactToComment = (seriesId: string, commentId: string, emoji: string) => {
@@ -787,113 +950,102 @@ function PlayoffsPrototypeApp() {
   };
 
   const renderHome = () => (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-300">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-300">
             {prototypeData.asOfLabel}
           </p>
-          <h1 className="mt-2 font-display text-[2.8rem] uppercase leading-[0.9] tracking-[0.04em] text-white">
+          <h1 className="mt-1 font-display text-[1.9rem] uppercase leading-[0.94] tracking-[0.04em] text-white">
             NBA Playoffs
           </h1>
-          <p className="mt-2 max-w-[26rem] text-sm leading-6 text-slate-300">
-            {prototypeData.home.heroCopy}
+          <p className="mt-1 max-w-[19rem] text-[13px] leading-5 text-slate-300">
+            The bracket runs picks, wagers, threads and friend movement every night.
           </p>
         </div>
-        <div className="rounded-2xl border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-right">
-          <div className="flex items-center gap-2 text-xs font-semibold text-amber-100">
+        <div className="shrink-0 rounded-[16px] border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-right">
+          <div className="flex items-center gap-2 text-[12px] font-semibold text-amber-100">
             <CoinsIcon />
-            <span>{coins} Coins</span>
+            <span>{coins}</span>
           </div>
-          <p className="mt-1 text-[11px] uppercase tracking-[0.2em] text-amber-200/80">
-            Wallet
+          <p className="mt-0.5 text-[10px] uppercase tracking-[0.16em] text-amber-200/80">
+            Coins
           </p>
         </div>
       </div>
 
       <SurfaceCard
+        className="p-3"
         style={{
           backgroundImage:
-            "linear-gradient(145deg, rgba(56,189,248,0.18), rgba(15,23,42,0.98) 46%, rgba(249,115,22,0.22)), radial-gradient(circle at top right, rgba(251,191,36,0.14), transparent 35%)",
+            "linear-gradient(145deg, rgba(56,189,248,0.18), rgba(15,23,42,0.98) 48%, rgba(249,115,22,0.18)), radial-gradient(circle at top right, rgba(251,191,36,0.14), transparent 32%)",
         }}
       >
-        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-200">
-          Control Center
-        </p>
-        <h2 className="mt-2 font-display text-[2rem] uppercase leading-none text-white">
-          {prototypeData.home.heroTitle}
-        </h2>
-        <p className="mt-3 text-sm leading-6 text-slate-200">
-          Tap a matchup, jump into its Series Hub, and watch how one play-in result or one Game 1 upset changes every friend bracket around you.
-        </p>
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          {quickStats.map((stat) => (
-            <div
-              key={stat.label}
-              className="rounded-[20px] border border-white/10 bg-black/25 p-3"
-            >
-              <p className="text-lg font-semibold text-white">{stat.value}</p>
-              <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
-                {stat.label}
-              </p>
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-sky-200">
+              Control Center
+            </p>
+            <h2 className="mt-1 text-[16px] font-semibold text-white">
+              {prototypeData.home.heroTitle}
+            </h2>
+            <p className="mt-1 text-[13px] leading-5 text-slate-200">
+              Jump from the bracket into every series conversation, pick, and bracket swing.
+            </p>
+          </div>
           <button
             type="button"
             onClick={() => {
               setActiveTab("bracket");
               setDetailScreen(null);
             }}
-            className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition active:scale-[0.98]"
+            className="shrink-0 rounded-full border border-white/12 bg-white/[0.08] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white"
           >
-            Open Full Bracket
+            Bracket
           </button>
-          <button
-            type="button"
-            onClick={() => openSeries(featuredSeries.id, "home")}
-            className="rounded-2xl border border-white/16 bg-black/25 px-4 py-3 text-sm font-semibold text-white transition active:scale-[0.98]"
-          >
-            Jump to Series Hub
-          </button>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {quickStats.map((stat) => (
+            <div
+              key={stat.label}
+              className="rounded-[16px] border border-white/10 bg-black/25 p-2.5"
+            >
+              <p className="text-[15px] font-semibold text-white">{stat.value}</p>
+              <p className="mt-0.5 text-[9px] uppercase tracking-[0.14em] text-slate-400">
+                {stat.label}
+              </p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 rounded-[16px] border border-white/10 bg-black/25 px-3 py-2.5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[9px] uppercase tracking-[0.14em] text-slate-400">
+                Most active series
+              </p>
+              <p className="mt-0.5 truncate text-[13px] font-semibold text-white">
+                {getSlotLabel(featuredSeries.teamA)} vs {getSlotLabel(featuredSeries.teamB)}
+              </p>
+              <p className="mt-0.5 text-[11px] text-slate-400">
+                {featuredSeries.fansDiscussing} discussing • {featuredSeries.activeLabel}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openSeries(featuredSeries.id, "home")}
+              className="shrink-0 rounded-full border border-white/12 bg-white/[0.08] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white"
+            >
+              Open
+            </button>
+          </div>
         </div>
       </SurfaceCard>
 
       <div>
         <SectionHeader
-          eyebrow="Preview"
-          title="Live Bracket Map"
-          subtitle="Three quick jumps into the branches fans are checking most."
-          action={
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab("bracket");
-                setDetailScreen(null);
-              }}
-              className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200"
-            >
-              Full bracket
-            </button>
-          }
-        />
-        <div className="space-y-3">
-          {previewSeriesIds.map((seriesId) => (
-            <MiniSeriesButton
-              key={seriesId}
-              series={seriesById[seriesId]}
-              onOpen={() => openSeries(seriesId, "home")}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <SectionHeader
-          eyebrow="Spotlight"
-          title="Featured Series"
-          subtitle="The most followed matchup in the product right now."
+          eyebrow="Featured"
+          title="Active Series"
+          subtitle="The matchup driving the most picks, wagers and comments."
         />
         <FeaturedSeriesCard
           series={featuredSeries}
@@ -904,11 +1056,41 @@ function PlayoffsPrototypeApp() {
 
       <div>
         <SectionHeader
+          eyebrow="Preview"
+          title="Bracket Shortcuts"
+          subtitle="Fast taps into the branches your feed keeps returning to."
+          action={
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("bracket");
+                setDetailScreen(null);
+              }}
+              className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-200"
+            >
+              Full bracket
+            </button>
+          }
+        />
+        <div className="-mx-0.5 flex gap-2 overflow-x-auto px-0.5 pb-1">
+          {previewSeriesIds.map((seriesId) => (
+            <div key={seriesId} className="min-w-[250px] shrink-0">
+              <MiniSeriesButton
+                series={seriesById[seriesId]}
+                onOpen={() => openSeries(seriesId, "home")}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <SectionHeader
           eyebrow="Schedule"
           title="Upcoming Games"
-          subtitle="Tonight's play-in games still reshape the playoff bracket."
+          subtitle="The next windows that shift picks and bracket pressure."
         />
-        <div className="space-y-3">
+        <div className="space-y-2">
           {prototypeData.upcomingGames.map((game) => (
             <button
               type="button"
@@ -930,20 +1112,24 @@ function PlayoffsPrototypeApp() {
               }}
               className="w-full text-left"
             >
-              <SurfaceCard className="p-4">
+              <SurfaceCard className="p-2.5">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">
+                  <div className="min-w-0">
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                       {game.label}
                     </p>
-                    <h3 className="mt-1 text-base font-semibold text-white">{game.matchup}</h3>
-                    <p className="mt-1 text-sm text-slate-300">{game.window}</p>
+                    <h3 className="mt-0.5 text-[13px] font-semibold text-white">
+                      {game.matchup}
+                    </h3>
+                    <p className="mt-0.5 text-[11px] text-slate-400">{game.window}</p>
                   </div>
                   <ChevronIcon />
                 </div>
-                <p className="mt-3 text-sm leading-6 text-slate-200">{game.note}</p>
-                <div className="mt-3 rounded-[20px] border border-sky-400/12 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
-                  {game.impact}
+                <div className="mt-2 flex items-center justify-between gap-3 text-[11px]">
+                  <p className="text-slate-300">{game.note}</p>
+                  <span className="shrink-0 rounded-full border border-sky-400/20 bg-sky-500/10 px-2 py-1 text-[10px] font-semibold text-sky-100">
+                    Impact
+                  </span>
                 </div>
               </SurfaceCard>
             </button>
@@ -954,8 +1140,8 @@ function PlayoffsPrototypeApp() {
       <div>
         <SectionHeader
           eyebrow="Compete"
-          title="Leaderboard Preview"
-          subtitle="Tap any player to view their bracket path."
+          title="Leaderboard"
+          subtitle="Standings stay close to the bracket so every result stays personal."
           action={
             <button
               type="button"
@@ -963,13 +1149,13 @@ function PlayoffsPrototypeApp() {
                 setActiveTab("leaderboard");
                 setDetailScreen(null);
               }}
-              className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200"
+              className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-200"
             >
               View all
             </button>
           }
         />
-        <div className="space-y-3">
+        <div className="space-y-2">
           {leaderboard.slice(0, 3).map((entry) => (
             <button
               key={entry.id}
@@ -977,23 +1163,22 @@ function PlayoffsPrototypeApp() {
               onClick={() => openFriendBracket(entry.id)}
               className="w-full text-left"
             >
-              <SurfaceCard className="p-4">
+              <SurfaceCard className="p-2.5">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="grid h-11 w-11 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] text-sm font-semibold text-white">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="grid h-9 w-9 place-items-center rounded-[16px] border border-white/10 bg-white/[0.06] text-[13px] font-semibold text-white">
                       #{entry.rank}
                     </div>
-                    <div>
-                      <p className="text-base font-semibold text-white">{entry.username}</p>
-                      <p className="text-sm text-slate-400">
-                        {entry.points} pts • {entry.correctPicks} correct • {entry.recentAccuracy} recent
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-semibold text-white">
+                        {entry.username}
+                      </p>
+                      <p className="truncate text-[11px] text-slate-400">
+                        {entry.points} pts • {entry.correctPicks} correct • {entry.recentAccuracy}
                       </p>
                     </div>
                   </div>
                   <ChevronIcon />
-                </div>
-                <div className="mt-3 rounded-[20px] border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-200">
-                  Favorite call: {entry.favoriteCall}
                 </div>
               </SurfaceCard>
             </button>
@@ -1005,9 +1190,9 @@ function PlayoffsPrototypeApp() {
         <SectionHeader
           eyebrow="Community"
           title="Recent Activity"
-          subtitle="The bracket feed lives inside every series thread."
+          subtitle="Social proof attached directly to the playoff map."
         />
-        <div className="space-y-3">
+        <div className="space-y-2">
           {activityFeed.slice(0, 5).map((item) => (
             <button
               key={item.id}
@@ -1019,20 +1204,21 @@ function PlayoffsPrototypeApp() {
               }}
               className="w-full text-left"
             >
-              <SurfaceCard className="p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-white">
-                      {item.user} {item.action} {item.detail}
+              <SurfaceCard className="p-2.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-semibold text-white">
+                      {item.user} {item.action}
                     </p>
-                    <p className="mt-1 text-sm text-slate-400">{item.time}</p>
+                    <p className="truncate text-[13px] text-slate-300">{item.detail}</p>
+                    <p className="mt-0.5 text-[10px] text-slate-500">{item.time}</p>
                   </div>
                   <span
                     className={cx(
-                      "rounded-full border px-3 py-1 text-[11px] font-semibold",
-                      item.tone === "prediction" && "border-sky-400/20 bg-sky-500/10 text-sky-100",
-                      item.tone === "comment" && "border-violet-400/20 bg-violet-500/10 text-violet-100",
-                      item.tone === "wager" && "border-amber-400/20 bg-amber-500/10 text-amber-100",
+                      "rounded-full border px-2 py-1 text-[10px] font-semibold",
+                      item.tone === "prediction" && activityToneClasses.pick,
+                      item.tone === "comment" && activityToneClasses.comment,
+                      item.tone === "wager" && activityToneClasses.wager,
                     )}
                   >
                     {item.tone}
@@ -1047,27 +1233,27 @@ function PlayoffsPrototypeApp() {
   );
 
   const renderBracket = () => (
-    <div className="space-y-6">
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
           Bracket Navigation
         </p>
-        <h1 className="mt-2 font-display text-[2.6rem] uppercase leading-[0.92] tracking-[0.05em] text-white">
+        <h1 className="font-display text-[1.85rem] uppercase leading-[0.94] tracking-[0.04em] text-white">
           Playoff Map
         </h1>
-        <p className="mt-2 text-sm leading-6 text-slate-300">
-          Every matchup is a doorway into its own Series Hub with predictions, wagers, friend picks, player form and playoff conversation.
+        <p className="text-[13px] leading-5 text-slate-300">
+          Tap any matchup to jump into its social control center.
         </p>
       </div>
 
       {roundSections.map((section) => (
-        <div key={section.title} className="space-y-3">
+        <div key={section.title} className="space-y-2">
           <SectionHeader
             eyebrow={section.title}
             title={section.title}
             subtitle={section.description}
           />
-          <div className="space-y-3">
+          <div className="space-y-2">
             {section.seriesIds.map((seriesId) => (
               <BracketCard
                 key={seriesId}
@@ -1081,349 +1267,441 @@ function PlayoffsPrototypeApp() {
     </div>
   );
 
-  const renderSeriesHub = () => (
-    <div className="space-y-5">
+  const renderSeriesHub = () => {
+    const nextGame = selectedSeries.schedule[0];
+
+    return (
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={goBack}
+            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-[13px] font-semibold text-white"
+          >
+            <BackIcon />
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("leaderboard");
+              setDetailScreen(null);
+            }}
+            className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-200"
+          >
+            Leaderboard
+          </button>
+        </div>
+
+        <SurfaceCard style={getSeriesGradient(selectedSeries)} className="p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                {selectedSeries.conference} • {selectedSeries.round}
+              </p>
+              <h1 className="mt-1 text-[16px] font-semibold text-white">
+                {getSlotLabel(selectedSeries.teamA)} vs {getSlotLabel(selectedSeries.teamB)}
+              </h1>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-300">
+                <span>Series {selectedSeries.score}</span>
+                <span className="text-slate-500">•</span>
+                <span>{selectedSeries.fansDiscussing} discussing</span>
+              </div>
+            </div>
+            <span
+              className={cx(
+                "max-w-[144px] rounded-full border px-2.5 py-1 text-center text-[10px] font-semibold leading-4",
+                toneClasses[selectedSeries.statusTone],
+              )}
+            >
+              {selectedSeries.status}
+            </span>
+          </div>
+
+          <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+            <div className="min-w-0 rounded-[16px] border border-white/10 bg-black/25 p-2">
+              <div className="flex items-center gap-2">
+                <SlotBadge slot={selectedSeries.teamA} />
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-semibold text-white">
+                    {getSlotLabel(selectedSeries.teamA)}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    {selectedSeries.teamA.seed
+                      ? `Seed ${selectedSeries.teamA.seed}`
+                      : selectedSeries.teamA.note ?? "Waiting"}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-[16px] border border-white/10 bg-black/30 px-3 py-2 text-center">
+              <p className="text-[9px] uppercase tracking-[0.14em] text-slate-400">Series</p>
+              <p className="mt-0.5 text-[15px] font-semibold text-white">
+                {selectedSeries.score}
+              </p>
+            </div>
+            <div className="min-w-0 rounded-[16px] border border-white/10 bg-black/25 p-2">
+              <div className="flex items-center gap-2">
+                <SlotBadge slot={selectedSeries.teamB} />
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-semibold text-white">
+                    {getSlotLabel(selectedSeries.teamB)}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    {selectedSeries.teamB.seed
+                      ? `Seed ${selectedSeries.teamB.seed}`
+                      : selectedSeries.teamB.note ?? "Waiting"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p className="mt-2 text-[12px] leading-5 text-slate-300">
+            {selectedSeries.cardNote}
+          </p>
+        </SurfaceCard>
+
+        <SurfaceCard className="p-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                Friends Activity
+              </p>
+              <p className="truncate text-[12px] text-slate-300">
+                Picks, wagers and comments moving this series right now.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openThread(selectedSeries.id, currentReturnTo)}
+              className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-200"
+            >
+              View all
+            </button>
+          </div>
+          <div className="mt-2 -mx-0.5 flex gap-2 overflow-x-auto px-0.5 pb-0.5">
+            {seriesActivity.map((item) => (
+              <div
+                key={item.id}
+                className={cx(
+                  "min-w-[214px] rounded-[16px] border px-3 py-2",
+                  activityToneClasses[item.tone],
+                )}
+              >
+                <p className="truncate text-[12px] font-semibold text-white">{item.title}</p>
+                <p className="mt-0.5 text-[11px] leading-5 text-slate-200">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        </SurfaceCard>
+
+        <div className="grid grid-cols-3 gap-2">
+          <ActionButton
+            label="Predict"
+            tone="primary"
+            onClick={() => openPrediction(selectedSeries.id, currentReturnTo)}
+          />
+          <ActionButton
+            label="Wager"
+            tone="secondary"
+            icon={<CoinsIcon />}
+            onClick={() => openPrediction(selectedSeries.id, currentReturnTo)}
+          />
+          <ActionButton
+            label="Thread"
+            tone="secondary"
+            icon={<ChatIcon />}
+            onClick={() => openThread(selectedSeries.id, currentReturnTo)}
+          />
+        </div>
+
+        <SurfaceCard className="p-3">
+          <SectionHeader
+            eyebrow="Quick Info"
+            title="Before the next tip"
+            subtitle="The fastest scan before you make a pick or jump into the thread."
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-[16px] border border-white/10 bg-black/20 px-3 py-2.5">
+              <p className="text-[9px] uppercase tracking-[0.14em] text-slate-400">
+                Next Game
+              </p>
+              <p className="mt-0.5 text-[13px] font-semibold text-white">
+                {nextGame ? nextGame.date : "TBD"}
+              </p>
+              <p className="text-[11px] text-slate-400">
+                {nextGame ? `${nextGame.time} • ${nextGame.venue}` : "Schedule coming soon"}
+              </p>
+            </div>
+            <div className="rounded-[16px] border border-white/10 bg-black/20 px-3 py-2.5">
+              <p className="text-[9px] uppercase tracking-[0.14em] text-slate-400">
+                Community Pick
+              </p>
+              <p className="mt-0.5 text-[13px] font-semibold text-white">
+                {getCommunityFavorite(selectedSeries)}
+              </p>
+              <p className="text-[11px] text-slate-400">{selectedSeries.activeLabel}</p>
+            </div>
+          </div>
+          <div className="mt-2 space-y-2">
+            <InfoRow label="Friends" value={getFriendLean(selectedSeries)} />
+            <InfoRow label="Bracket Impact" value={selectedSeries.impactStat} />
+            {userPrediction ? (
+              <InfoRow
+                label="Your Pick"
+                value={`${getWinningSlotLabel(selectedSeries, userPrediction.winner)} • ${userPrediction.wager} Coins`}
+              />
+            ) : null}
+          </div>
+        </SurfaceCard>
+
+        <div>
+          <SectionHeader
+            eyebrow="Players"
+            title="Top Performances"
+            subtitle="The quick stat lines shaping how fans are calling this matchup."
+          />
+          <div className="-mx-0.5 flex gap-2 overflow-x-auto px-0.5 pb-1">
+            {selectedSeries.playerPerformances.map((performance) => {
+              const team = teamMap[performance.teamId];
+
+              return (
+                <div
+                  key={`${selectedSeries.id}-${performance.player}`}
+                  className="min-w-[160px] rounded-[16px] border border-white/10 bg-white/[0.05] p-2.5"
+                >
+                  <div
+                    className="inline-flex rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-white"
+                    style={{
+                      backgroundImage: `linear-gradient(135deg, ${hexToRgba(
+                        team.colors.primary,
+                        0.85,
+                      )}, ${hexToRgba(team.colors.secondary, 0.75)})`,
+                    }}
+                  >
+                    {team.shortName}
+                  </div>
+                  <p className="mt-2 text-[13px] font-semibold text-white">
+                    {performance.player}
+                  </p>
+                  <p className="mt-0.5 text-[12px] text-slate-300">{performance.line}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <SurfaceCard className="p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                Discussion
+              </p>
+              <h2 className="mt-0.5 text-[14px] font-semibold text-white">
+                Series Thread
+              </h2>
+              <p className="text-[11px] text-slate-400">
+                {selectedSeries.fansDiscussing} fans discussing this series
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openThread(selectedSeries.id, currentReturnTo)}
+              className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-200"
+            >
+              Open
+            </button>
+          </div>
+          <div className="mt-2 space-y-2">
+            {visibleComments.slice(0, 2).map((comment) => (
+              <div
+                key={comment.id}
+                className="rounded-[16px] border border-white/10 bg-black/20 px-3 py-2.5"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-semibold text-white">{comment.user}</p>
+                    <p className="text-[10px] text-slate-500">
+                      {comment.flair} • {comment.time}
+                    </p>
+                  </div>
+                </div>
+                <p className="mt-1 text-[12px] leading-5 text-slate-200">{comment.text}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2 rounded-[16px] border border-white/10 bg-black/20 px-3 py-2">
+            <div className="flex flex-wrap gap-1.5">
+              {reactionTotals.map((reaction) => (
+                <div
+                  key={`${selectedSeries.id}-${reaction.emoji}`}
+                  className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold text-slate-100"
+                >
+                  {reaction.emoji} {reaction.count}
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => openThread(selectedSeries.id, currentReturnTo)}
+              className="shrink-0 text-[11px] font-semibold text-sky-300"
+            >
+              View Full Thread &gt;
+            </button>
+          </div>
+        </SurfaceCard>
+
+        <div className="space-y-2">
+          <SectionHeader
+            eyebrow="More"
+            title="Deeper Context"
+            subtitle="Results, stakes and bracket pressure once you want more than the quick scan."
+          />
+
+          <SurfaceCard className="p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                  Recent Games
+                </p>
+                <p className="text-[12px] text-slate-300">Context carrying into the series.</p>
+              </div>
+            </div>
+            <div className="mt-2 space-y-2">
+              {selectedSeries.recentResults.map((result) => (
+                <div
+                  key={`${selectedSeries.id}-${result.label}-${result.result}`}
+                  className="rounded-[16px] border border-white/10 bg-black/20 px-3 py-2.5"
+                >
+                  <p className="text-[9px] uppercase tracking-[0.14em] text-slate-400">
+                    {result.label}
+                  </p>
+                  <p className="mt-0.5 text-[13px] font-semibold text-white">
+                    {result.result}
+                  </p>
+                  <p className="mt-1 text-[12px] leading-5 text-slate-300">
+                    {result.detail}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </SurfaceCard>
+
+          <SurfaceCard className="p-2.5">
+            <div>
+              <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                What This Game Means
+              </p>
+              <p className="text-[12px] text-slate-300">
+                The wider bracket story under the score line.
+              </p>
+            </div>
+            <div className="mt-2 space-y-2">
+              {selectedSeries.stakes.map((item) => (
+                <div
+                  key={`${selectedSeries.id}-${item}`}
+                  className="rounded-[16px] border border-white/10 bg-black/20 px-3 py-2.5"
+                >
+                  <p className="text-[12px] leading-5 text-slate-200">{item}</p>
+                </div>
+              ))}
+            </div>
+          </SurfaceCard>
+        </div>
+      </div>
+    );
+  };
+
+  const renderThread = () => (
+    <div className="space-y-2.5">
       <div className="flex items-center justify-between">
         <button
           type="button"
           onClick={goBack}
-          className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-sm font-semibold text-white"
+          className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-[13px] font-semibold text-white"
         >
           <BackIcon />
-          Back
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab("leaderboard");
-            setDetailScreen(null);
-          }}
-          className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-sm font-semibold text-slate-200"
-        >
-          Leaderboard
+          Back to hub
         </button>
       </div>
 
-      <SurfaceCard style={getSeriesGradient(selectedSeries)} className="p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-300">
-              {selectedSeries.conference} • {selectedSeries.round}
-            </p>
-            <h1 className="mt-2 font-display text-[2.2rem] uppercase leading-none text-white">
-              Series Hub
-            </h1>
-          </div>
-          <span
-            className={cx(
-              "rounded-full border px-3 py-1 text-[11px] font-semibold",
-              toneClasses[selectedSeries.statusTone],
-            )}
-          >
-            {selectedSeries.status}
-          </span>
-        </div>
-
-        <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-          <div className="space-y-3">
-            <SlotRow slot={selectedSeries.teamA} compact />
-          </div>
-          <div className="rounded-full border border-white/12 bg-black/25 px-3 py-2 text-sm font-semibold uppercase tracking-[0.2em] text-slate-100">
-            VS
-          </div>
-          <div className="space-y-3">
-            <SlotRow slot={selectedSeries.teamB} compact />
-          </div>
-        </div>
-
-        <div className="mt-4 rounded-[24px] border border-white/10 bg-black/25 p-4">
-          <div className="flex items-end justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Series Score</p>
-              <p className="mt-1 text-3xl font-semibold text-white">{selectedSeries.score}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Fans discussing</p>
-              <p className="mt-1 text-xl font-semibold text-white">{selectedSeries.fansDiscussing}</p>
-            </div>
-          </div>
-          <p className="mt-3 text-sm leading-6 text-slate-200">{selectedSeries.preview}</p>
-        </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() =>
-              openPrediction(
-                selectedSeries.id,
-                detailScreen && detailScreen.type === "series"
-                  ? detailScreen.returnTo
-                  : activeTab,
-              )
-            }
-            className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition active:scale-[0.98]"
-          >
-            Predict Next Game
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              openPrediction(
-                selectedSeries.id,
-                detailScreen && detailScreen.type === "series"
-                  ? detailScreen.returnTo
-                  : activeTab,
-              )
-            }
-            className="rounded-2xl border border-white/16 bg-black/25 px-4 py-3 text-sm font-semibold text-white transition active:scale-[0.98]"
-          >
-            Wager Coins
-          </button>
-        </div>
-
-        {userPrediction ? (
-          <div className="mt-4 rounded-[22px] border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-            Your latest call: {getWinningSlotLabel(selectedSeries, userPrediction.winner)} •{" "}
-            {userPrediction.wager} Coins
-          </div>
-        ) : null}
-      </SurfaceCard>
-
-      <SurfaceCard>
-        <SectionHeader
-          eyebrow="Schedule"
-          title="Game Window"
-          subtitle="The next tap from the bracket should always tell you exactly what is coming."
-        />
-        <div className="space-y-3">
-          {selectedSeries.schedule.map((item) => (
-            <div
-              key={`${selectedSeries.id}-${item.label}`}
-              className="flex items-start justify-between gap-3 rounded-[22px] border border-white/10 bg-white/[0.04] p-3"
-            >
-              <div>
-                <p className="text-sm font-semibold text-white">{item.label}</p>
-                <p className="mt-1 text-sm text-slate-300">
-                  {item.date} • {item.time}
-                </p>
-                <p className="mt-1 text-xs text-slate-400">{item.venue}</p>
-              </div>
-              {item.note ? (
-                <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-[11px] font-semibold text-slate-200">
-                  {item.note}
-                </span>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      </SurfaceCard>
-
-      <SurfaceCard>
-        <SectionHeader
-          eyebrow="Community"
-          title="Pick Split"
-          subtitle={selectedSeries.impactStat}
-        />
-        <ProgressBar
-          leftLabel={getSlotLabel(selectedSeries.teamA)}
-          rightLabel={getSlotLabel(selectedSeries.teamB)}
-          leftValue={selectedSeries.community.teamA}
-          rightValue={selectedSeries.community.teamB}
-        />
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-3">
-            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">
-              Friends on {getSlotLabel(selectedSeries.teamA)}
-            </p>
-            <div className="mt-3 space-y-2">
-              {selectedSeries.friends
-                .filter((friend) => friend.side === "teamA")
-                .map((friend) => (
-                  <div
-                    key={`${selectedSeries.id}-${friend.name}`}
-                    className="rounded-2xl border border-white/10 bg-black/25 p-3"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-white">{friend.name}</p>
-                      <span className="text-xs text-slate-300">{friend.confidence}</span>
-                    </div>
-                    <p className="mt-1 text-sm text-slate-400">{friend.note}</p>
-                  </div>
-                ))}
-            </div>
-          </div>
-          <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-3">
-            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">
-              Friends on {getSlotLabel(selectedSeries.teamB)}
-            </p>
-            <div className="mt-3 space-y-2">
-              {selectedSeries.friends
-                .filter((friend) => friend.side === "teamB")
-                .map((friend) => (
-                  <div
-                    key={`${selectedSeries.id}-${friend.name}`}
-                    className="rounded-2xl border border-white/10 bg-black/25 p-3"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-white">{friend.name}</p>
-                      <span className="text-xs text-slate-300">{friend.confidence}</span>
-                    </div>
-                    <p className="mt-1 text-sm text-slate-400">{friend.note}</p>
-                  </div>
-                ))}
-            </div>
-          </div>
-        </div>
-      </SurfaceCard>
-
-      <SurfaceCard>
-        <SectionHeader
-          eyebrow="Form"
-          title="Recent Game Results"
-          subtitle="Pre-series form and play-in results flow directly into the bracket story."
-        />
-        <div className="space-y-3">
-          {selectedSeries.recentResults.map((result) => (
-            <div
-              key={`${selectedSeries.id}-${result.label}-${result.result}`}
-              className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4"
-            >
-              <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">{result.label}</p>
-              <p className="mt-1 text-base font-semibold text-white">{result.result}</p>
-              <p className="mt-2 text-sm leading-6 text-slate-300">{result.detail}</p>
-            </div>
-          ))}
-        </div>
-      </SurfaceCard>
-
-      <SurfaceCard>
-        <SectionHeader
-          eyebrow="Players"
-          title="Top Performances"
-          subtitle="The quick-scan stat lines fans want before they make a pick."
-        />
-        <div className="space-y-3">
-          {selectedSeries.playerPerformances.map((performance) => {
-            const team = teamMap[performance.teamId];
-            const chipStyle = {
-              backgroundImage: `linear-gradient(135deg, ${hexToRgba(
-                team.colors.primary,
-                0.85,
-              )}, ${hexToRgba(team.colors.secondary, 0.72)})`,
-            };
-
-            return (
-              <div
-                key={`${selectedSeries.id}-${performance.player}`}
-                className="flex items-center justify-between gap-3 rounded-[22px] border border-white/10 bg-white/[0.04] p-3"
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className="rounded-2xl px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-white"
-                    style={chipStyle}
-                  >
-                    {team.shortName}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-white">{performance.player}</p>
-                    <p className="text-sm text-slate-400">{performance.line}</p>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </SurfaceCard>
-
-      <SurfaceCard>
-        <SectionHeader
-          eyebrow="Bracket Impact"
-          title="What This Game Means"
-          subtitle="Why one result changes the rest of the playoff map."
-        />
-        <div className="space-y-3">
-          {selectedSeries.stakes.map((item) => (
-            <div
-              key={`${selectedSeries.id}-${item}`}
-              className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4"
-            >
-              <p className="text-sm leading-6 text-slate-200">{item}</p>
-            </div>
-          ))}
-        </div>
-      </SurfaceCard>
-
-      <SurfaceCard>
-        <SectionHeader
-          eyebrow="Discussion"
-          title="Series Thread"
-          subtitle={`${selectedSeries.fansDiscussing} fans discussing this series`}
-        />
-        <div className="mb-4 flex flex-wrap gap-2">
+      <SurfaceCard style={getSeriesGradient(selectedSeries)} className="p-3">
+        <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+          Series Thread
+        </p>
+        <h1 className="mt-1 text-[16px] font-semibold text-white">
+          {getSlotLabel(selectedSeries.teamA)} vs {getSlotLabel(selectedSeries.teamB)}
+        </h1>
+        <p className="mt-1 text-[12px] text-slate-300">
+          {selectedSeries.fansDiscussing} fans discussing this series
+        </p>
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
           {reactionTotals.map((reaction) => (
             <div
-              key={`${selectedSeries.id}-${reaction.emoji}`}
-              className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-sm font-semibold text-slate-100"
+              key={`${selectedSeries.id}-thread-${reaction.emoji}`}
+              className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold text-slate-100"
             >
               {reaction.emoji} {reaction.count}
             </div>
           ))}
         </div>
-        <div className="rounded-[24px] border border-white/10 bg-black/20 p-3">
-          <label className="block text-[11px] uppercase tracking-[0.2em] text-slate-400">
-            Jump into the thread
-          </label>
-          <textarea
-            value={commentDrafts[selectedSeries.id] ?? ""}
-            onChange={(event) =>
-              setCommentDrafts((current) => ({
-                ...current,
-                [selectedSeries.id]: event.target.value,
-              }))
-            }
-            rows={3}
-            placeholder="Talk strategy, picks or player matchups..."
-            className="mt-3 w-full resize-none rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
-          />
-          <button
-            type="button"
-            onClick={submitComment}
-            className="mt-3 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition active:scale-[0.98]"
-          >
-            Post Comment
-          </button>
-        </div>
-        <div className="mt-4 space-y-3">
-          {visibleComments.map((comment) => (
-            <div
-              key={comment.id}
-              className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-white">{comment.user}</p>
-                  <p className="text-xs text-slate-400">
-                    {comment.flair} • {comment.time}
-                  </p>
-                </div>
-              </div>
-              <p className="mt-3 text-sm leading-6 text-slate-200">{comment.text}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {comment.reactions.map((reaction) => (
-                  <button
-                    key={`${comment.id}-${reaction.emoji}`}
-                    type="button"
-                    onClick={() => reactToComment(selectedSeries.id, comment.id, reaction.emoji)}
-                    className="rounded-full border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-slate-100"
-                  >
-                    {reaction.emoji} {reaction.count}
-                  </button>
-                ))}
+      </SurfaceCard>
+
+      <SurfaceCard className="p-3">
+        <SectionHeader
+          eyebrow="Post"
+          title="Jump into the thread"
+          subtitle="Talk strategy, picks or player matchups."
+        />
+        <textarea
+          value={commentDrafts[selectedSeries.id] ?? ""}
+          onChange={(event) =>
+            setCommentDrafts((current) => ({
+              ...current,
+              [selectedSeries.id]: event.target.value,
+            }))
+          }
+          rows={3}
+          placeholder="Add your take..."
+          className="w-full resize-none rounded-[16px] border border-white/10 bg-white/[0.04] px-4 py-3 text-[13px] text-white outline-none placeholder:text-slate-500"
+        />
+        <button
+          type="button"
+          onClick={submitComment}
+          className="mt-3 rounded-[16px] bg-white px-4 py-3 text-[13px] font-semibold text-slate-950 transition active:scale-[0.98]"
+        >
+          Post Comment
+        </button>
+      </SurfaceCard>
+
+      <div className="space-y-2">
+        {visibleComments.map((comment) => (
+          <SurfaceCard key={comment.id} className="p-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[13px] font-semibold text-white">{comment.user}</p>
+                <p className="text-[10px] text-slate-400">
+                  {comment.flair} • {comment.time}
+                </p>
               </div>
             </div>
-          ))}
-        </div>
-      </SurfaceCard>
+            <p className="mt-2 text-[13px] leading-5 text-slate-200">{comment.text}</p>
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {comment.reactions.map((reaction) => (
+                <button
+                  key={`${comment.id}-${reaction.emoji}`}
+                  type="button"
+                  onClick={() => reactToComment(selectedSeries.id, comment.id, reaction.emoji)}
+                  className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] font-semibold text-slate-100"
+                >
+                  {reaction.emoji} {reaction.count}
+                </button>
+              ))}
+            </div>
+          </SurfaceCard>
+        ))}
+      </div>
     </div>
   );
 
@@ -1437,22 +1715,22 @@ function PlayoffsPrototypeApp() {
     const canAfford = delta <= coins;
 
     return (
-      <div className="space-y-5">
+      <div className="space-y-2.5">
         <div className="flex items-center justify-between">
           <button
             type="button"
             onClick={goBack}
-            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-sm font-semibold text-white"
+            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-[13px] font-semibold text-white"
           >
             <BackIcon />
             Back to hub
           </button>
-          <div className="rounded-full border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-amber-100">
+          <div className="rounded-full border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-[13px] font-semibold text-amber-100">
             {coins} Coins
           </div>
         </div>
 
-        <SurfaceCard style={getSeriesGradient(predictionSeries)}>
+        <SurfaceCard style={getSeriesGradient(predictionSeries)} className="p-3">
           <SectionHeader
             eyebrow="Prediction Flow"
             title="Predict Next Game"
@@ -1460,12 +1738,12 @@ function PlayoffsPrototypeApp() {
               predictionSeries.schedule[0]?.date ?? "TBD"
             } • ${predictionSeries.schedule[0]?.time ?? "TBD"}`}
           />
-          <div className="space-y-3">
+          <div className="space-y-2">
             <button
               type="button"
               onClick={() => setDraftWinner("teamA")}
               className={cx(
-                "w-full rounded-[24px] border p-3 text-left transition",
+                "w-full rounded-[18px] border p-2 text-left transition",
                 draftWinner === "teamA"
                   ? "border-sky-300/40 bg-sky-500/12"
                   : "border-white/10 bg-white/[0.04]",
@@ -1477,7 +1755,7 @@ function PlayoffsPrototypeApp() {
               type="button"
               onClick={() => setDraftWinner("teamB")}
               className={cx(
-                "w-full rounded-[24px] border p-3 text-left transition",
+                "w-full rounded-[18px] border p-2 text-left transition",
                 draftWinner === "teamB"
                   ? "border-amber-300/40 bg-amber-500/12"
                   : "border-white/10 bg-white/[0.04]",
@@ -1487,18 +1765,18 @@ function PlayoffsPrototypeApp() {
             </button>
           </div>
 
-          <div className="mt-5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-300">
-              Choose your wager
+          <div className="mt-3.5">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+              Wager
             </p>
-            <div className="mt-3 grid grid-cols-4 gap-2">
+            <div className="mt-2 grid grid-cols-4 gap-2">
               {wagerOptions.map((amount) => (
                 <button
                   key={amount}
                   type="button"
                   onClick={() => setDraftWager(amount)}
                   className={cx(
-                    "rounded-2xl border px-3 py-3 text-sm font-semibold transition",
+                    "rounded-[14px] border px-3 py-2.5 text-[13px] font-semibold transition",
                     draftWager === amount
                       ? "border-amber-300/30 bg-amber-500/12 text-amber-100"
                       : "border-white/10 bg-white/[0.05] text-slate-200",
@@ -1510,26 +1788,26 @@ function PlayoffsPrototypeApp() {
             </div>
           </div>
 
-          <div className="mt-5 rounded-[22px] border border-white/10 bg-black/25 p-4">
-            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Your ticket</p>
-            <p className="mt-2 text-base font-semibold text-white">
+          <div className="mt-3.5 rounded-[16px] border border-white/10 bg-black/25 p-3">
+            <p className="text-[9px] uppercase tracking-[0.14em] text-slate-400">Your ticket</p>
+            <p className="mt-1.5 text-[13px] font-semibold text-white">
               {draftWinner
                 ? `${getWinningSlotLabel(predictionSeries, draftWinner)} • ${draftWager} Coins`
                 : "Choose a team first"}
             </p>
-            <p className="mt-2 text-sm text-slate-300">
-              Picks lock at tip-off and show up in the series hub and your leaderboard activity.
+            <p className="mt-1 text-[12px] text-slate-300">
+              Locks at tip-off and shows up in the series hub and your activity feed.
             </p>
           </div>
 
           {!canAfford ? (
-            <div className="mt-4 rounded-[20px] border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+            <div className="mt-3 rounded-[16px] border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-[13px] text-rose-100">
               You only have {coins} Coins left to use on new picks.
             </div>
           ) : null}
 
           {predictionMessage ? (
-            <div className="mt-4 rounded-[22px] border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            <div className="mt-3 rounded-[16px] border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-[13px] text-emerald-100">
               {predictionMessage}
             </div>
           ) : null}
@@ -1539,7 +1817,7 @@ function PlayoffsPrototypeApp() {
             disabled={!draftWinner || !canAfford}
             onClick={confirmPrediction}
             className={cx(
-              "mt-5 w-full rounded-2xl px-4 py-3 text-sm font-semibold transition",
+              "mt-3.5 w-full rounded-[16px] px-4 py-3 text-[13px] font-semibold transition",
               draftWinner && canAfford
                 ? "bg-white text-slate-950 active:scale-[0.98]"
                 : "cursor-not-allowed bg-white/10 text-slate-500",
@@ -1553,45 +1831,46 @@ function PlayoffsPrototypeApp() {
   };
 
   const renderLeaderboard = () => (
-    <div className="space-y-5">
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
           Prediction Race
         </p>
-        <h1 className="mt-2 font-display text-[2.6rem] uppercase leading-[0.92] tracking-[0.05em] text-white">
+        <h1 className="font-display text-[1.85rem] uppercase leading-[0.94] tracking-[0.04em] text-white">
           Leaderboard
         </h1>
-        <p className="mt-2 text-sm leading-6 text-slate-300">
-          Friend brackets stay one tap away from the standings, so every rank shift sends people back into the bracket.
+        <p className="text-[13px] leading-5 text-slate-300">
+          Friend brackets stay close to the standings so every result feels social.
         </p>
       </div>
 
       <SurfaceCard
+        className="p-3"
         style={{
           backgroundImage:
-            "linear-gradient(145deg, rgba(250,204,21,0.18), rgba(15,23,42,0.98) 50%, rgba(59,130,246,0.15))",
+            "linear-gradient(145deg, rgba(250,204,21,0.18), rgba(15,23,42,0.98) 52%, rgba(59,130,246,0.15))",
         }}
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-200">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-amber-200">
               Your standing
             </p>
-            <h2 className="mt-2 font-display text-[1.9rem] uppercase leading-none text-white">
+            <h2 className="mt-1 text-[16px] font-semibold text-white">
               #{prototypeData.user.rank} in your circle
             </h2>
-            <p className="mt-2 text-sm text-slate-200">
+            <p className="mt-1 text-[12px] text-slate-200">
               {prototypeData.user.accuracy} recent accuracy • {prototypeData.user.streak}
             </p>
           </div>
-          <div className="rounded-2xl border border-white/12 bg-black/25 px-4 py-3 text-right">
-            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Coins left</p>
-            <p className="mt-1 text-lg font-semibold text-white">{coins}</p>
+          <div className="rounded-[16px] border border-white/12 bg-black/25 px-3 py-2 text-right">
+            <p className="text-[9px] uppercase tracking-[0.14em] text-slate-400">Coins</p>
+            <p className="mt-0.5 text-[15px] font-semibold text-white">{coins}</p>
           </div>
         </div>
       </SurfaceCard>
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {leaderboard.map((entry) => (
           <button
             key={entry.id}
@@ -1599,26 +1878,28 @@ function PlayoffsPrototypeApp() {
             onClick={() => openFriendBracket(entry.id)}
             className="w-full text-left"
           >
-            <SurfaceCard className="p-4">
+            <SurfaceCard className="p-2.5">
               <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="grid h-12 w-12 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] text-sm font-semibold text-white">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="grid h-9 w-9 place-items-center rounded-[16px] border border-white/10 bg-white/[0.06] text-[13px] font-semibold text-white">
                     #{entry.rank}
                   </div>
-                  <div>
-                    <p className="text-base font-semibold text-white">{entry.username}</p>
-                    <p className="text-sm text-slate-400">
-                      {entry.points} pts • {entry.correctPicks} correct • {entry.recentAccuracy} recent
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-semibold text-white">
+                      {entry.username}
+                    </p>
+                    <p className="truncate text-[11px] text-slate-400">
+                      {entry.points} pts • {entry.correctPicks} correct • {entry.recentAccuracy}
                     </p>
                   </div>
                 </div>
-                <ChevronIcon />
+                <div className="text-right">
+                  <p className="text-[11px] font-semibold text-white">{entry.trend}</p>
+                  <ChevronIcon />
+                </div>
               </div>
-              <div className="mt-3 flex items-center justify-between gap-3 rounded-[20px] border border-white/10 bg-black/20 px-3 py-2">
-                <p className="text-sm text-slate-200">{entry.favoriteCall}</p>
-                <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-[11px] font-semibold text-slate-200">
-                  {entry.trend}
-                </span>
+              <div className="mt-2 rounded-[16px] border border-white/10 bg-black/20 px-3 py-2 text-[12px] text-slate-200">
+                {entry.favoriteCall}
               </div>
             </SurfaceCard>
           </button>
@@ -1628,12 +1909,12 @@ function PlayoffsPrototypeApp() {
   );
 
   const renderFriendBracket = () => (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <button
           type="button"
           onClick={goBack}
-          className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-sm font-semibold text-white"
+          className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-[13px] font-semibold text-white"
         >
           <BackIcon />
           Back
@@ -1641,56 +1922,57 @@ function PlayoffsPrototypeApp() {
       </div>
 
       <SurfaceCard
+        className="p-3"
         style={{
           backgroundImage:
-            "linear-gradient(145deg, rgba(34,197,94,0.15), rgba(15,23,42,0.98) 50%, rgba(59,130,246,0.15))",
+            "linear-gradient(145deg, rgba(34,197,94,0.15), rgba(15,23,42,0.98) 52%, rgba(59,130,246,0.15))",
         }}
       >
-        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-200">
+        <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-emerald-200">
           Friend Bracket
         </p>
-        <h1 className="mt-2 font-display text-[2.2rem] uppercase leading-none text-white">
-          {selectedUser.username}
-        </h1>
-        <p className="mt-2 text-sm text-slate-200">
-          Rank #{selectedUser.rank} • {selectedUser.points} pts • {selectedUser.correctPicks} correct picks
+        <h1 className="mt-1 text-[16px] font-semibold text-white">{selectedUser.username}</h1>
+        <p className="mt-1 text-[12px] text-slate-200">
+          Rank #{selectedUser.rank} • {selectedUser.points} pts • {selectedUser.correctPicks} correct
         </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <span className="rounded-full border border-emerald-400/30 bg-emerald-500/12 px-3 py-2 text-xs font-semibold text-emerald-100">
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          <span className="rounded-full border border-emerald-400/30 bg-emerald-500/12 px-2.5 py-1 text-[10px] font-semibold text-emerald-100">
             Green = correct
           </span>
-          <span className="rounded-full border border-rose-400/30 bg-rose-500/12 px-3 py-2 text-xs font-semibold text-rose-100">
+          <span className="rounded-full border border-rose-400/30 bg-rose-500/12 px-2.5 py-1 text-[10px] font-semibold text-rose-100">
             Red = incorrect
           </span>
-          <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-semibold text-slate-200">
-            Slate = pending
+          <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold text-slate-200">
+            Pending = slate
           </span>
         </div>
       </SurfaceCard>
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {selectedUser.bracketPreview.map((pick) => (
-          <SurfaceCard key={pick.id} className="p-4">
+          <SurfaceCard key={pick.id} className="p-2.5">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+              <div className="min-w-0">
+                <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                   {pick.round}
                 </p>
-                <h3 className="mt-1 text-base font-semibold text-white">{pick.matchup}</h3>
+                <h3 className="mt-0.5 text-[13px] font-semibold text-white">
+                  {pick.matchup}
+                </h3>
               </div>
               <span
                 className={cx(
-                  "rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]",
+                  "rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]",
                   pickStatusClasses[pick.status],
                 )}
               >
                 {pick.status}
               </span>
             </div>
-            <div className="mt-3 rounded-[20px] border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
+            <div className="mt-2 rounded-[16px] border border-white/10 bg-black/20 px-3 py-2 text-[13px] font-semibold text-white">
               {pick.pick}
             </div>
-            <p className="mt-3 text-sm leading-6 text-slate-300">{pick.note}</p>
+            <p className="mt-2 text-[12px] leading-5 text-slate-300">{pick.note}</p>
           </SurfaceCard>
         ))}
       </div>
@@ -1704,6 +1986,10 @@ function PlayoffsPrototypeApp() {
 
     if (detailScreen?.type === "prediction") {
       return renderPrediction();
+    }
+
+    if (detailScreen?.type === "thread") {
+      return renderThread();
     }
 
     if (detailScreen?.type === "friend") {
@@ -1722,15 +2008,18 @@ function PlayoffsPrototypeApp() {
   };
 
   return (
-    <main className="relative mx-auto flex min-h-[calc(100vh-1rem)] w-full max-w-[440px] items-center justify-center">
+    <main className="relative mx-auto flex min-h-[calc(100vh-0.5rem)] w-full max-w-[430px] items-center justify-center">
       <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.14),transparent_35%),radial-gradient(circle_at_bottom,rgba(249,115,22,0.12),transparent_30%)]" />
-      <div className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden rounded-[34px] border border-white/10 bg-[#050912] shadow-[0_28px_120px_rgba(2,6,23,0.72)] sm:min-h-[880px]">
+      <div className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden rounded-[32px] border border-white/10 bg-[#050912] shadow-[0_28px_120px_rgba(2,6,23,0.72)] sm:min-h-[860px]">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0))]" />
         <div className="relative mx-auto mt-3 h-1.5 w-24 rounded-full bg-white/12" />
-        <div ref={scrollRef} className="relative flex-1 overflow-y-auto px-4 pb-28 pt-4">
+        <div
+          ref={scrollRef}
+          className="relative flex-1 overflow-y-auto px-3 pb-[5.5rem] pt-2.5"
+        >
           {renderContent()}
         </div>
-        <div className="absolute inset-x-0 bottom-0 border-t border-white/10 bg-[#060b15]/95 px-3 pb-4 pt-3 backdrop-blur-xl">
+        <div className="absolute inset-x-0 bottom-0 border-t border-white/10 bg-[#060b15]/95 px-3 pb-3 pt-2 backdrop-blur-xl">
           <div className="grid grid-cols-3 gap-2">
             {primaryTabs.map((tab) => {
               const isActive = !detailScreen && activeTab === tab.id;
@@ -1744,7 +2033,7 @@ function PlayoffsPrototypeApp() {
                     setDetailScreen(null);
                   }}
                   className={cx(
-                    "rounded-2xl px-3 py-3 text-center transition",
+                    "rounded-[16px] px-2 py-2.5 text-center transition",
                     isActive ? "bg-white text-slate-950" : "bg-white/[0.04] text-slate-300",
                   )}
                 >
@@ -1756,9 +2045,7 @@ function PlayoffsPrototypeApp() {
                     ) : (
                       <TrophyIcon active={isActive} />
                     )}
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.2em]">
-                      {tab.label}
-                    </span>
+                    <span className="text-[9px] font-semibold">{tab.label}</span>
                   </div>
                 </button>
               );
