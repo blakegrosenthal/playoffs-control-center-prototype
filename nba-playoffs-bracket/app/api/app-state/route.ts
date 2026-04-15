@@ -10,10 +10,12 @@ export async function GET(request: NextRequest) {
     const clientId = request.nextUrl.searchParams.get("clientId") ?? undefined;
     const inviteCode =
       request.nextUrl.searchParams.get("inviteCode") ?? undefined;
+    const entryId = request.nextUrl.searchParams.get("entryId") ?? undefined;
 
     const state = await getAppBootstrap({
       clientId: clientId ?? "",
       inviteCode,
+      entryId,
     });
 
     return NextResponse.json(state, {

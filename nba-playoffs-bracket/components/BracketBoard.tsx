@@ -409,7 +409,7 @@ export default function BracketBoard({
       viewMode === "my-bracket"
         ? selectedWinnerId
           ? `${getTeam(selectedWinnerId)?.shortName ?? "Team"} claimed this play-in slot`
-          : "Pick a winner to place the seed"
+          : "Pick the winner of this single-elimination game"
         : formatPlayInStatus(matchupId, results);
 
     return (
@@ -433,6 +433,9 @@ export default function BracketBoard({
         </div>
 
         <div className="mt-2 text-sm font-semibold text-white">{game.label}</div>
+        <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+          Single-elimination
+        </div>
 
         <div className="mt-3 space-y-2">
           <TeamRow
@@ -608,7 +611,7 @@ export default function BracketBoard({
             {viewMode === "my-bracket" ? "Your playoff bracket" : "Official playoff bracket"}
           </h2>
           <p className="mt-1 text-sm text-slate-300/80">
-            Click a team to advance it, then choose the series length. The bracket flows left and right into the Finals exactly like a tournament board.
+            Click a team to advance it, then choose the series length. Play-in games are single-elimination, every playoff round is best-of-seven, and the bracket flows left and right into the Finals exactly like a tournament board.
           </p>
         </div>
 

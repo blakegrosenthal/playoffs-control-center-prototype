@@ -12,16 +12,27 @@ const slotTeam = (teamId: TeamId, seed?: number): SlotRef => ({
 export const PLAYOFF_SEASON_LABEL = "2025-26 NBA Postseason";
 export const DEFAULT_POOL_LOCK_AT = "2026-04-14T16:00:00-07:00";
 export const DEFAULT_TIEBREAKER_QUESTION =
-  "Tiebreaker: total combined points scored in the NBA Finals clincher";
+  "Tiebreaker: combined points scored in the championship-clinching NBA Finals game.";
 
 export const SCORING_RULES = {
-  playInWinner: 3,
-  exactSeriesLengthBonus: 2,
-  seriesWinnerByRound: {
-    "round-1": 6,
-    semifinals: 10,
-    "conference-finals": 14,
-    finals: 20,
+  playInWinner: 2,
+  seriesByRound: {
+    "round-1": {
+      winner: 5,
+      exactLength: 2,
+    },
+    semifinals: {
+      winner: 10,
+      exactLength: 3,
+    },
+    "conference-finals": {
+      winner: 20,
+      exactLength: 5,
+    },
+    finals: {
+      winner: 40,
+      exactLength: 10,
+    },
   },
 } as const;
 

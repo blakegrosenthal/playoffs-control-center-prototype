@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
       clientId?: string;
       displayName?: string;
       inviteCode?: string;
+      joinMethod?: "link" | "code";
       initialEntryName?: string;
       finalsTiebreaker?: number;
     };
@@ -18,7 +19,8 @@ export async function POST(request: NextRequest) {
     const joined = await joinPoolWithInitialEntry({
       clientId: body.clientId ?? "",
       displayName: body.displayName ?? "",
-      inviteCode: body.inviteCode ?? "",
+      inviteCode: body.inviteCode,
+      joinMethod: body.joinMethod === "link" ? "link" : "code",
       initialEntryName: body.initialEntryName,
       finalsTiebreaker:
         typeof body.finalsTiebreaker === "number"

@@ -171,6 +171,268 @@ export const getSeriesWins = (
 const getCompletedGames = (games: GameScore[]) =>
   games.filter((game) => game.status === "final");
 
+const lengthOptions: SeriesLength[] = [4, 5, 6, 7];
+
+const uniqTeamIds = (teamIds: Array<TeamId | undefined>): TeamId[] =>
+  [...new Set(teamIds.filter((teamId): teamId is TeamId => Boolean(teamId)))];
+
+const getPossiblePlayInWinnerIds = (
+  gameId: string,
+  results: ResultsState,
+): TeamId[] => {
+  const actualWinner = results.playIn[gameId]?.winnerTeamId;
+
+  if (actualWinner) {
+    return [actualWinner];
+  }
+
+  const game = playInById[gameId];
+
+  if (!game) {
+    return [];
+  }
+
+  return uniqTeamIds([
+    ...getPossibleSlotTeamIds(game.homeSlot, results),
+    ...getPossibleSlotTeamIds(game.awaySlot, results),
+  ]);
+};
+
+const getPossiblePlayInLoserIds = (
+  gameId: string,
+  results: ResultsState,
+): TeamId[] => {
+  const game = playInById[gameId];
+
+  if (!game) {
+    return [];
+  }
+
+  const participants = uniqTeamIds([
+    ...getPossibleSlotTeamIds(game.homeSlot, results),
+    ...getPossibleSlotTeamIds(game.awaySlot, results),
+  ]);
+  const actualWinner = results.playIn[gameId]?.winnerTeamId;
+
+  return actualWinner
+    ? participants.filter((teamId) => teamId !== actualWinner)
+    : participants;
+};
+
+const getPossibleSeriesWinnerIds = (
+  seriesId: string,
+  results: ResultsState,
+): TeamId[] => {
+  const actualWinner = results.series[seriesId]?.winnerTeamId;
+
+  if (actualWinner) {
+    return [actualWinner];
+  }
+
+  const series = seriesById[seriesId];
+
+  if (!series) {
+    return [];
+  }
+
+  return uniqTeamIds([
+    ...getPossibleSlotTeamIds(series.homeSlot, results),
+    ...getPossibleSlotTeamIds(series.awaySlot, results),
+  ]);
+};
+
+const getPossibleSlotTeamIds = (slot: SlotRef, results: ResultsState): TeamId[] => {
+  switch (slot.type) {
+    case "team":
+      return [slot.teamId];
+    case "play-in-winner":
+      return getPossiblePlayInWinnerIds(slot.gameId, results);
+    case "play-in-loser":
+      return getPossiblePlayInLoserIds(slot.gameId, results);
+    case "series-winner":
+      return getPossibleSeriesWinnerIds(slot.seriesId, results);
+    default:
+      return [];
+  }
+};
+
+const getPossibleSeriesLengthsForWinner = (
+  seriesId: string,
+  winnerTeamId: TeamId,
+  results: ResultsState,
+): SeriesLength[] => {
+  const actualWinner = results.series[seriesId]?.winnerTeamId;
+
+  if (actualWinner) {
+    const actualLength = getSeriesActualLength(results, seriesId);
+    return actualWinner === winnerTeamId && actualLength ? [actualLength] : [];
+  }
+
+  const series = seriesById[seriesId];
+
+  if (!series) {
+    return [];
+  }
+
+  const [homeTeamId, awayTeamId] = resolveSeriesParticipants(
+    series,
+    "official",
+    undefined,
+    results,
+  );
+
+  if (!homeTeamId || !awayTeamId) {
+    return getPossibleSeriesWinnerIds(seriesId, results).includes(winnerTeamId)
+      ? lengthOptions
+      : [];
+  }
+
+  if (winnerTeamId !== homeTeamId && winnerTeamId !== awayTeamId) {
+    return [];
+  }
+
+  const loserTeamId = winnerTeamId === homeTeamId ? awayTeamId : homeTeamId;
+  const winnerWins = getSeriesWins(results, seriesId, winnerTeamId);
+  const loserWins = getSeriesWins(results, seriesId, loserTeamId);
+
+  if (winnerWins >= 4 || loserWins >= 4) {
+    return [];
+  }
+
+  const completedGames = Math.max(
+    getCompletedGames(results.series[seriesId]?.games ?? []).length,
+    winnerWins + loserWins,
+  );
+  const earliestFinish = completedGames + (4 - winnerWins);
+
+  return lengthOptions.filter((games) => games >= earliestFinish);
+};
+
+const getSeriesRoundScoring = (series: SeriesDefinition) =>
+  SCORING_RULES.seriesByRound[series.round];
+
+interface MatchupScoreSummary {
+  winnerPoints: number;
+  exactLengthPoints: number;
+  maxWinnerPoints: number;
+  maxExactLengthPoints: number;
+  correctWinner: boolean;
+  exactLengthCorrect: boolean;
+  pending: boolean;
+}
+
+const scorePlayInPick = (
+  entry: BracketEntry,
+  results: ResultsState,
+  matchupId: string,
+): MatchupScoreSummary => {
+  const predictedWinner = entry.picks[matchupId]?.winnerTeamId;
+  const actualWinner = results.playIn[matchupId]?.winnerTeamId;
+
+  if (!predictedWinner) {
+    return {
+      winnerPoints: 0,
+      exactLengthPoints: 0,
+      maxWinnerPoints: 0,
+      maxExactLengthPoints: 0,
+      correctWinner: false,
+      exactLengthCorrect: false,
+      pending: false,
+    };
+  }
+
+  if (actualWinner) {
+    const correctWinner = predictedWinner === actualWinner;
+
+    return {
+      winnerPoints: correctWinner ? SCORING_RULES.playInWinner : 0,
+      exactLengthPoints: 0,
+      maxWinnerPoints: correctWinner ? SCORING_RULES.playInWinner : 0,
+      maxExactLengthPoints: 0,
+      correctWinner,
+      exactLengthCorrect: false,
+      pending: false,
+    };
+  }
+
+  const canStillWin = getPossiblePlayInWinnerIds(matchupId, results).includes(
+    predictedWinner,
+  );
+
+  return {
+    winnerPoints: 0,
+    exactLengthPoints: 0,
+    maxWinnerPoints: canStillWin ? SCORING_RULES.playInWinner : 0,
+    maxExactLengthPoints: 0,
+    correctWinner: false,
+    exactLengthCorrect: false,
+    pending: canStillWin,
+  };
+};
+
+const scoreSeriesPick = (
+  entry: BracketEntry,
+  results: ResultsState,
+  series: SeriesDefinition,
+): MatchupScoreSummary => {
+  const predictedWinner = entry.picks[series.id]?.winnerTeamId;
+  const predictedGames = entry.picks[series.id]?.games;
+  const actualWinner = results.series[series.id]?.winnerTeamId;
+  const roundScoring = getSeriesRoundScoring(series);
+
+  if (!predictedWinner) {
+    return {
+      winnerPoints: 0,
+      exactLengthPoints: 0,
+      maxWinnerPoints: 0,
+      maxExactLengthPoints: 0,
+      correctWinner: false,
+      exactLengthCorrect: false,
+      pending: false,
+    };
+  }
+
+  if (actualWinner) {
+    const correctWinner = predictedWinner === actualWinner;
+    const actualGames = getSeriesActualLength(results, series.id);
+    const exactLengthCorrect =
+      correctWinner &&
+      Boolean(predictedGames) &&
+      Boolean(actualGames) &&
+      predictedGames === actualGames;
+
+    return {
+      winnerPoints: correctWinner ? roundScoring.winner : 0,
+      exactLengthPoints: exactLengthCorrect ? roundScoring.exactLength : 0,
+      maxWinnerPoints: correctWinner ? roundScoring.winner : 0,
+      maxExactLengthPoints: exactLengthCorrect ? roundScoring.exactLength : 0,
+      correctWinner,
+      exactLengthCorrect,
+      pending: false,
+    };
+  }
+
+  const canStillWin = getPossibleSeriesWinnerIds(series.id, results).includes(
+    predictedWinner,
+  );
+  const canStillHitExactLength =
+    canStillWin &&
+    Boolean(predictedGames) &&
+    getPossibleSeriesLengthsForWinner(series.id, predictedWinner, results).includes(
+      predictedGames as SeriesLength,
+    );
+
+  return {
+    winnerPoints: 0,
+    exactLengthPoints: 0,
+    maxWinnerPoints: canStillWin ? roundScoring.winner : 0,
+    maxExactLengthPoints: canStillHitExactLength ? roundScoring.exactLength : 0,
+    correctWinner: false,
+    exactLengthCorrect: false,
+    pending: canStillWin || canStillHitExactLength,
+  };
+};
+
 export const getSeriesActualLength = (
   results: ResultsState,
   seriesId: string,
@@ -247,7 +509,7 @@ export const formatPlayInStatus = (
     return latestGame.statusText;
   }
 
-  return "Single elimination game";
+  return "Single-elimination play-in game";
 };
 
 export const isPickCorrect = (
@@ -290,46 +552,54 @@ export const scoreEntry = (
   entry: BracketEntry,
   results: ResultsState,
 ): ScoredEntry => {
-  let totalPoints = 0;
+  let winnerPoints = 0;
+  let exactLengthPoints = 0;
+  let maxWinnerPoints = 0;
+  let maxExactLengthPoints = 0;
   let correctWinners = 0;
+  let correctSeriesWinners = 0;
   let exactLengths = 0;
   let pending = 0;
 
   for (const playIn of playInGames) {
-    const predicted = entry.picks[playIn.id]?.winnerTeamId;
-    const actual = results.playIn[playIn.id]?.winnerTeamId;
+    const summary = scorePlayInPick(entry, results, playIn.id);
 
-    if (!predicted || !actual) {
-      pending += 1;
-      continue;
+    winnerPoints += summary.winnerPoints;
+    maxWinnerPoints += summary.maxWinnerPoints;
+
+    if (summary.correctWinner) {
+      correctWinners += 1;
+      correctSeriesWinners += 1;
     }
 
-    if (predicted === actual) {
-      totalPoints += SCORING_RULES.playInWinner;
-      correctWinners += 1;
+    if (summary.pending) {
+      pending += 1;
     }
   }
 
   for (const series of seriesDefinitions) {
-    const predictedWinner = entry.picks[series.id]?.winnerTeamId;
-    const actualWinner = results.series[series.id]?.winnerTeamId;
+    const summary = scoreSeriesPick(entry, results, series);
 
-    if (!predictedWinner || !actualWinner) {
-      pending += 1;
-      continue;
+    winnerPoints += summary.winnerPoints;
+    exactLengthPoints += summary.exactLengthPoints;
+    maxWinnerPoints += summary.maxWinnerPoints;
+    maxExactLengthPoints += summary.maxExactLengthPoints;
+
+    if (summary.correctWinner) {
+      correctWinners += 1;
     }
 
-    if (predictedWinner === actualWinner) {
-      totalPoints += SCORING_RULES.seriesWinnerByRound[series.round];
-      correctWinners += 1;
+    if (summary.exactLengthCorrect) {
+      exactLengths += 1;
+    }
 
-      if (isSeriesLengthCorrect(series.id, entry, results)) {
-        totalPoints += SCORING_RULES.exactSeriesLengthBonus;
-        exactLengths += 1;
-      }
+    if (summary.pending) {
+      pending += 1;
     }
   }
 
+  const totalPoints = winnerPoints + exactLengthPoints;
+  const maxPossiblePoints = maxWinnerPoints + maxExactLengthPoints;
   const tiebreakerDiff =
     typeof results.tiebreakerActual === "number" &&
     typeof entry.tiebreakerGuess === "number"
@@ -339,7 +609,11 @@ export const scoreEntry = (
   return {
     entryId: entry.id,
     totalPoints,
+    maxPossiblePoints,
+    winnerPoints,
+    exactLengthPoints,
     correctWinners,
+    correctSeriesWinners,
     exactLengths,
     pending,
     tiebreakerGuess: entry.tiebreakerGuess,
@@ -366,20 +640,23 @@ export const rankEntries = (entries: BracketEntry[], results: ResultsState) =>
         return left.score.tiebreakerDiff - right.score.tiebreakerDiff;
       }
 
-      if (
-        typeof left.score.tiebreakerGuess === "number" &&
-        typeof right.score.tiebreakerGuess === "number" &&
-        left.score.tiebreakerGuess !== right.score.tiebreakerGuess
-      ) {
-        return left.score.tiebreakerGuess - right.score.tiebreakerGuess;
-      }
-
-      if (right.score.correctWinners !== left.score.correctWinners) {
-        return right.score.correctWinners - left.score.correctWinners;
+      if (right.score.correctSeriesWinners !== left.score.correctSeriesWinners) {
+        return right.score.correctSeriesWinners - left.score.correctSeriesWinners;
       }
 
       if (right.score.exactLengths !== left.score.exactLengths) {
         return right.score.exactLengths - left.score.exactLengths;
+      }
+
+      const leftSubmittedAt = left.entry.submittedAt
+        ? new Date(left.entry.submittedAt).getTime()
+        : Number.POSITIVE_INFINITY;
+      const rightSubmittedAt = right.entry.submittedAt
+        ? new Date(right.entry.submittedAt).getTime()
+        : Number.POSITIVE_INFINITY;
+
+      if (leftSubmittedAt !== rightSubmittedAt) {
+        return leftSubmittedAt - rightSubmittedAt;
       }
 
       return `${left.entry.displayName}:${left.entry.name}`.localeCompare(

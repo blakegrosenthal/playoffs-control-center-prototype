@@ -84,17 +84,38 @@ const toEntryShape = (
 const visibleEntriesForParticipant = (
   pool: PoolRecord,
   participantId?: string,
+  sharedEntryId?: string,
 ) => {
   const locked = Date.now() >= new Date(pool.lockTime).getTime();
 
   return pool.entries
-    .filter((entry) => entry.submittedAt || entry.participantId === participantId)
+    .filter((entry) => {
+      if (entry.participantId === participantId) {
+        return true;
+      }
+
+      if (!entry.submittedAt) {
+        return false;
+      }
+
+      if (participantId) {
+        return true;
+      }
+
+      return sharedEntryId ? entry.id === sharedEntryId : false;
+    })
     .map((entry) =>
       toEntryShape(entry, entry.participantId === participantId && !locked),
     );
 };
 
-const toPoolShape = (pool: PoolRecord, participantId?: string): Pool => ({
+const toPoolShape = (
+  pool: PoolRecord,
+  participantId?: string,
+  options?: {
+    sharedEntryId?: string;
+  },
+): Pool => ({
   id: pool.id,
   name: pool.name,
   description: pool.description ?? undefined,
@@ -107,7 +128,11 @@ const toPoolShape = (pool: PoolRecord, participantId?: string): Pool => ({
   joined: pool.participants.some(
     (membership) => membership.participantId === participantId,
   ),
-  entries: visibleEntriesForParticipant(pool, participantId),
+  entries: visibleEntriesForParticipant(
+    pool,
+    participantId,
+    options?.sharedEntryId,
+  ),
 });
 
 const createClientProfile = (
@@ -338,6 +363,7 @@ async function assertMembership(poolId: string, participantId: string) {
 export async function getAppBootstrap(input: {
   clientId: string;
   inviteCode?: string | null;
+  entryId?: string | null;
 }): Promise<AppBootstrapResponse> {
   validateClientId(input.clientId);
 
@@ -381,7 +407,9 @@ export async function getAppBootstrap(input: {
     results,
     invitePool:
       invitePool && !joinedPools.some((pool) => pool.id === invitePool.id)
-        ? toPoolShape(invitePool, participant?.id)
+        ? toPoolShape(invitePool, participant?.id, {
+            sharedEntryId: input.entryId ?? undefined,
+          })
         : null,
   };
 }
@@ -456,7 +484,8 @@ export async function createPoolWithInitialEntry(input: {
 export async function joinPoolWithInitialEntry(input: {
   clientId: string;
   displayName: string;
-  inviteCode: string;
+  inviteCode?: string;
+  joinMethod: "link" | "code";
   initialEntryName?: string;
   finalsTiebreaker?: number;
 }) {
@@ -466,7 +495,12 @@ export async function joinPoolWithInitialEntry(input: {
   const normalizedInviteCode = normalizeInviteCode(input.inviteCode);
 
   if (!normalizedInviteCode) {
-    throw new HttpError(400, "A valid invite code is required.");
+    throw new HttpError(
+      400,
+      input.joinMethod === "link"
+        ? "This private invite link is invalid."
+        : "A valid manual join code is required.",
+    );
   }
 
   const results = await getSharedResults();

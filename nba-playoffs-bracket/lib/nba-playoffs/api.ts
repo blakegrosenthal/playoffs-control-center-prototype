@@ -13,6 +13,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 export async function fetchAppBootstrap(input: {
   clientId: string;
   inviteCode?: string | null;
+  entryId?: string | null;
 }) {
   const params = new URLSearchParams({
     clientId: input.clientId,
@@ -20,6 +21,10 @@ export async function fetchAppBootstrap(input: {
 
   if (input.inviteCode) {
     params.set("inviteCode", input.inviteCode);
+  }
+
+  if (input.entryId) {
+    params.set("entryId", input.entryId);
   }
 
   const response = await fetch(`/api/app-state?${params.toString()}`, {
@@ -53,7 +58,8 @@ export async function createPoolRequest(input: {
 export async function joinPoolRequest(input: {
   clientId: string;
   displayName: string;
-  inviteCode: string;
+  inviteCode?: string;
+  joinMethod: "link" | "code";
   initialEntryName?: string;
   finalsTiebreaker?: number;
 }) {

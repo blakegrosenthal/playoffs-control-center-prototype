@@ -160,7 +160,11 @@ export interface LiveScoreboardGame {
 export interface ScoredEntry {
   entryId: string;
   totalPoints: number;
+  maxPossiblePoints: number;
+  winnerPoints: number;
+  exactLengthPoints: number;
   correctWinners: number;
+  correctSeriesWinners: number;
   exactLengths: number;
   pending: number;
   tiebreakerGuess?: number;

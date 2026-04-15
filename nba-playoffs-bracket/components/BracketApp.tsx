@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import BracketBoard from "@/components/BracketBoard";
 import {
+  DEFAULT_TIEBREAKER_QUESTION,
   DEFAULT_POOL_LOCK_AT,
   PLAYOFF_SEASON_LABEL,
+  SCORING_RULES,
   TOTAL_PICKABLE_MATCHUPS,
   createSeededResultsState,
   playInGames,
@@ -17,6 +19,9 @@ import {
   getCompletedPickCount,
   getSeriesLengthPickCount,
   getTeam,
+  getWinnerPickPopularity,
+  isPickCorrect,
+  isSeriesLengthCorrect,
   rankEntries,
   resolveSeriesParticipants,
   sanitizeEntryPicks,
@@ -44,7 +49,55 @@ import {
   SeriesLength,
 } from "@/lib/nba-playoffs/types";
 
+type JoinMethod = "link" | "code";
+type PickStatusTone = "correct" | "incorrect" | "pending" | "none";
+
+const pickStatusToneClasses: Record<PickStatusTone, string> = {
+  correct: "border-emerald-300/20 bg-emerald-500/10 text-emerald-100",
+  incorrect: "border-rose-300/20 bg-rose-500/10 text-rose-100",
+  pending: "border-amber-300/20 bg-amber-500/10 text-amber-100",
+  none: "border-white/10 bg-white/[0.04] text-slate-300",
+};
+
 const POLL_INTERVAL_MS = 15000;
+const scoringRows = [
+  {
+    label: "Play-In",
+    detail: "Single-elimination",
+    winnerPoints: SCORING_RULES.playInWinner,
+    exactLengthPoints: 0,
+  },
+  {
+    label: "Round 1",
+    detail: "Best-of-seven",
+    winnerPoints: SCORING_RULES.seriesByRound["round-1"].winner,
+    exactLengthPoints: SCORING_RULES.seriesByRound["round-1"].exactLength,
+  },
+  {
+    label: "Conference Semifinals",
+    detail: "Best-of-seven",
+    winnerPoints: SCORING_RULES.seriesByRound.semifinals.winner,
+    exactLengthPoints: SCORING_RULES.seriesByRound.semifinals.exactLength,
+  },
+  {
+    label: "Conference Finals",
+    detail: "Best-of-seven",
+    winnerPoints: SCORING_RULES.seriesByRound["conference-finals"].winner,
+    exactLengthPoints: SCORING_RULES.seriesByRound["conference-finals"].exactLength,
+  },
+  {
+    label: "NBA Finals",
+    detail: "Best-of-seven",
+    winnerPoints: SCORING_RULES.seriesByRound.finals.winner,
+    exactLengthPoints: SCORING_RULES.seriesByRound.finals.exactLength,
+  },
+] as const;
+const MAX_BRACKET_POINTS =
+  playInGames.length * SCORING_RULES.playInWinner +
+  seriesDefinitions.reduce((total, series) => {
+    const roundScoring = SCORING_RULES.seriesByRound[series.round];
+    return total + roundScoring.winner + roundScoring.exactLength;
+  }, 0);
 
 const formatAbsolute = (value?: string) => {
   if (!value) {
@@ -88,9 +141,7 @@ const parseOptionalWholeNumber = (value: string) => {
     };
   }
 
-  const parsed = Number(trimmed);
-
-  if (!Number.isFinite(parsed)) {
+  if (!/^\d+$/.test(trimmed)) {
     return {
       value: undefined,
       valid: false,
@@ -98,15 +149,47 @@ const parseOptionalWholeNumber = (value: string) => {
   }
 
   return {
-    value: Math.round(parsed),
+    value: Number(trimmed),
     valid: true,
+  };
+};
+
+function TiebreakerHelperText({ text }: { text: string }) {
+  return <p className="mt-2 text-xs text-slate-400">{text}</p>;
+}
+
+const getPickStatusMeta = (value: boolean | undefined, hasPick: boolean) => {
+  if (!hasPick) {
+    return {
+      label: "No pick",
+      tone: "none" as const,
+    };
+  }
+
+  if (value === true) {
+    return {
+      label: "Correct",
+      tone: "correct" as const,
+    };
+  }
+
+  if (value === false) {
+    return {
+      label: "Incorrect",
+      tone: "incorrect" as const,
+    };
+  }
+
+  return {
+    label: "Pending",
+    tone: "pending" as const,
   };
 };
 
 const createPreviewEntry = (displayName?: string): BracketEntry => ({
   id: "preview-entry",
-  displayName: displayName?.trim() || "Guest",
-  name: "Create an entry to start picking",
+  displayName: displayName?.trim() || "Bracket preview",
+  name: "Join a pool to start picking",
   picks: {},
 });
 
@@ -292,6 +375,7 @@ export default function BracketApp() {
       const payload = await fetchAppBootstrap({
         clientId: currentPreferences.clientId,
         inviteCode: options?.inviteCode ?? inviteCodeFromUrl,
+        entryId: sharedEntryIdFromUrl,
       });
       const selection = resolveSelection(
         payload,
@@ -422,12 +506,131 @@ export default function BracketApp() {
   const winnerPickCount = getCompletedPickCount(bracketEntry);
   const seriesLengthPickCount = getSeriesLengthPickCount(bracketEntry);
   const activeScore = scoreEntry(bracketEntry, results);
-  const submittedEntries = displayPool?.entries.filter((entry) => entry.submittedAt) ?? [];
+  const poolEntries = displayPool?.entries ?? [];
+  const submittedEntries = poolEntries.filter((entry) => entry.submittedAt);
   const rankedEntries = rankEntries(submittedEntries, results);
   const invitePool = bootstrap?.invitePool ?? null;
   const inviteLocked = invitePool?.lockAt
     ? Date.now() >= new Date(invitePool.lockAt).getTime()
     : false;
+  const tiebreakerHelperText = DEFAULT_TIEBREAKER_QUESTION;
+  const lockStatusTitle = displayPool
+    ? poolLocked
+      ? "Picks are locked"
+      : "Picks are open"
+    : "Create or join a pool";
+  const lockStatusBody = displayPool
+    ? poolLocked
+      ? `This pool locked at ${formatAbsolute(displayPool.lockAt)}. Picks and entry creation are closed, and scoring now updates automatically as results change.`
+      : `All picks lock at ${formatAbsolute(displayPool.lockAt)}, before the first play-in game begins. Entries can be edited and new brackets can be created until then.`
+    : "Create a pool or join by invite link to unlock submissions, standings, and live scoring.";
+  const leader = rankedEntries[0];
+  const championPickPopularity = getWinnerPickPopularity(submittedEntries, "nba-finals");
+  const championPickLeaders = Object.entries(championPickPopularity)
+    .map(([teamId, percent]) => ({
+      teamId,
+      percent,
+      team: getTeam(teamId),
+    }))
+    .sort((left, right) => right.percent - left.percent);
+  const mostPickedChampion = championPickLeaders[0];
+  const matchupPopularityCards = [...playInGames, ...seriesDefinitions].map((matchup) => {
+    const popularity = getWinnerPickPopularity(submittedEntries, matchup.id);
+    const picks = Object.entries(popularity)
+      .map(([teamId, percent]) => ({
+        teamId,
+        percent,
+        team: getTeam(teamId),
+      }))
+      .sort((left, right) => right.percent - left.percent);
+
+    return {
+      id: matchup.id,
+      label: matchup.label,
+      note: matchup.note,
+      picks,
+      roundLabel:
+        "seedOutcome" in matchup
+          ? "Play-In"
+          : matchup.id === "nba-finals"
+            ? "Champion pick"
+            : matchup.round === "round-1"
+              ? "Round 1"
+              : matchup.round === "semifinals"
+                ? "Conference semifinals"
+                : matchup.round === "conference-finals"
+                  ? "Conference finals"
+                  : "NBA Finals",
+    };
+  });
+  const entryPickStatusRows = selectedEntry
+    ? [
+        ...playInGames.map((game) => {
+          const pick = selectedEntry.picks[game.id];
+          const winnerTeam = getTeam(pick?.winnerTeamId);
+          const winnerStatus = isPickCorrect(game.id, selectedEntry, results);
+          const winnerMeta = getPickStatusMeta(
+            winnerStatus,
+            Boolean(pick?.winnerTeamId),
+          );
+
+          return {
+            id: game.id,
+            stage: "Play-In",
+            label: game.label,
+            pickText: winnerTeam?.displayName ?? "No pick yet",
+            detail: formatPlayInStatus(game.id, results),
+            winnerStatusLabel: winnerMeta.label,
+            winnerTone: winnerMeta.tone,
+            lengthStatusLabel: "Single-elimination",
+            lengthTone: "none" as const,
+          };
+        }),
+        ...seriesDefinitions.map((series) => {
+          const pick = selectedEntry.picks[series.id];
+          const winnerTeam = getTeam(pick?.winnerTeamId);
+          const winnerStatus = isPickCorrect(series.id, selectedEntry, results);
+          const lengthStatus = isSeriesLengthCorrect(series.id, selectedEntry, results);
+          const winnerMeta = getPickStatusMeta(
+            winnerStatus,
+            Boolean(pick?.winnerTeamId),
+          );
+          const lengthMeta = getPickStatusMeta(
+            lengthStatus,
+            Boolean(pick?.games),
+          );
+
+          return {
+            id: series.id,
+            stage:
+              series.id === "nba-finals"
+                ? "NBA Finals"
+                : series.round === "round-1"
+                  ? "Round 1"
+                  : series.round === "semifinals"
+                    ? "Conference semifinals"
+                    : "Conference finals",
+            label: series.label,
+            pickText: winnerTeam
+              ? pick?.games
+                ? `${winnerTeam.displayName} in ${pick.games}`
+                : winnerTeam.displayName
+              : "No pick yet",
+            detail: formatSeriesStatus(
+              series.id,
+              results,
+              resolveSeriesParticipants(series, "official", undefined, results).map(
+                (teamId) => getTeam(teamId),
+              ) as [ReturnType<typeof getTeam>, ReturnType<typeof getTeam>],
+            ),
+            winnerStatusLabel: winnerMeta.label,
+            winnerTone: winnerMeta.tone,
+            lengthStatusLabel: pick?.games ? lengthMeta.label : "No length pick",
+            lengthTone: pick?.games ? lengthMeta.tone : ("none" as const),
+          };
+        }),
+      ]
+    : [];
 
   useEffect(() => {
     if (!selectedEntry) {
@@ -689,14 +892,27 @@ export default function BracketApp() {
     }
   };
 
-  const handleJoinPool = async (overrideCode?: string) => {
-    const inviteCode = normalizeInviteCode(overrideCode ?? joinInviteCode);
+  const handleJoinPool = async (options?: {
+    inviteCode?: string;
+    joinMethod?: JoinMethod;
+  }) => {
+    const joinMethod = options?.joinMethod ?? "code";
+    const inviteCode = normalizeInviteCode(options?.inviteCode ?? joinInviteCode);
     const trimmedDisplayName = joinDisplayName.trim();
     const trimmedEntryName = joinEntryName.trim();
     const parsedTiebreaker = parseOptionalWholeNumber(joinTiebreaker);
 
-    if (!inviteCode || !trimmedDisplayName) {
-      setErrorMessage("Add an invite code and display name to join the pool.");
+    if (!trimmedDisplayName) {
+      setErrorMessage("Add your display name before joining the pool.");
+      return;
+    }
+
+    if (!inviteCode) {
+      setErrorMessage(
+        joinMethod === "link"
+          ? "This invite link is missing its private join token."
+          : "Add a manual join code and display name to join the pool.",
+      );
       return;
     }
 
@@ -712,6 +928,7 @@ export default function BracketApp() {
         clientId: preferences.clientId,
         displayName: trimmedDisplayName,
         inviteCode,
+        joinMethod,
         initialEntryName: trimmedEntryName || undefined,
         finalsTiebreaker: parsedTiebreaker.value,
       });
@@ -728,7 +945,9 @@ export default function BracketApp() {
       });
       setStatusMessage(
         joined.entryId
-          ? "You joined the pool and your bracket entry is ready."
+          ? joinMethod === "link"
+            ? "You joined from the private invite link and your bracket entry is ready."
+            : "You joined the pool and your bracket entry is ready."
           : joined.locked
             ? "You joined the pool. Picks are locked, so standings are view-only now."
             : "You joined the pool.",
@@ -999,7 +1218,24 @@ export default function BracketApp() {
             <div className="mt-2 text-2xl font-semibold text-white">
               {activeScore.totalPoints}
             </div>
+            <div className="mt-1 text-xs text-slate-400">
+              Max possible {activeScore.maxPossiblePoints}
+            </div>
           </div>
+        </div>
+
+        <div
+          className={cx(
+            "mt-4 rounded-2xl border px-4 py-3 text-sm",
+            displayPool
+              ? poolLocked
+                ? "border-rose-300/20 bg-rose-500/10 text-rose-100"
+                : "border-emerald-300/20 bg-emerald-500/10 text-emerald-100"
+              : "border-white/10 bg-white/[0.04] text-slate-200",
+          )}
+        >
+          <div className="font-semibold">{lockStatusTitle}</div>
+          <div className="mt-1">{lockStatusBody}</div>
         </div>
 
         {pendingEntryWrites > 0 ? (
@@ -1036,13 +1272,16 @@ export default function BracketApp() {
                   {invitePool.description}
                 </p>
               ) : null}
+              <p className="mt-3 text-sm text-slate-300/78">
+                This private invite link is enough to join. A manual join code is only needed if someone is joining from the separate Join Pool screen.
+              </p>
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3">
                   <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
-                    Invite code
+                    Join method
                   </div>
-                  <div className="mt-2 text-lg font-semibold text-white">
-                    {invitePool.inviteCode}
+                  <div className="mt-2 text-sm font-semibold text-white">
+                    Private invite link
                   </div>
                 </div>
                 <div className="rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3">
@@ -1095,26 +1334,32 @@ export default function BracketApp() {
                     onChange={(event) => setJoinTiebreaker(event.target.value)}
                     disabled={inviteLocked}
                     className="mt-2 w-full rounded-2xl border border-white/12 bg-slate-950/70 px-3 py-3 text-sm text-white outline-none disabled:opacity-50"
-                    placeholder="Total points in Finals clincher"
+                    placeholder="Combined points in Finals clincher"
                     inputMode="numeric"
                   />
+                  <TiebreakerHelperText text={tiebreakerHelperText} />
                 </label>
                 <label className="text-sm font-medium text-slate-200">
                   Status
                   <div className="mt-2 rounded-2xl border border-white/12 bg-slate-950/70 px-3 py-[14px] text-sm text-slate-200">
                     {inviteLocked
                       ? "Picks are locked. You can still join to follow the standings."
-                      : "Create your entry now and start making picks immediately."}
+                      : "You already have the private invite link, so no manual join code is required here."}
                   </div>
                 </label>
               </div>
               <button
                 type="button"
-                onClick={() => void handleJoinPool(invitePool.inviteCode)}
+                onClick={() =>
+                  void handleJoinPool({
+                    inviteCode: invitePool.inviteCode,
+                    joinMethod: "link",
+                  })
+                }
                 disabled={isJoiningPool}
                 className="mt-4 rounded-full border border-amber-300/30 bg-amber-400/12 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:border-amber-300/50 hover:bg-amber-400/18 disabled:opacity-50"
               >
-                {isJoiningPool ? "Joining pool…" : "Join this pool"}
+                {isJoiningPool ? "Joining pool…" : "Join from invite link"}
               </button>
             </div>
           </div>
@@ -1182,14 +1427,14 @@ export default function BracketApp() {
                   onClick={handleCopyInviteLink}
                   className="rounded-full border border-white/12 bg-white/6 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/22 hover:bg-white/10"
                 >
-                  Copy invite link
+                  Copy private invite link
                 </button>
                 <button
                   type="button"
                   onClick={() => void copyText(activePool.inviteCode)}
                   className="rounded-full border border-white/12 bg-white/6 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/22 hover:bg-white/10"
                 >
-                  Copy invite code
+                  Copy manual join code
                 </button>
                 <button
                   type="button"
@@ -1199,8 +1444,13 @@ export default function BracketApp() {
                   Copy bracket link
                 </button>
                 <div className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-300">
-                  Invite code <span className="font-semibold text-white">{activePool.inviteCode}</span>
+                  Manual join code{" "}
+                  <span className="font-semibold text-white">{activePool.inviteCode}</span>
                 </div>
+              </div>
+
+              <div className="rounded-[20px] border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
+                Anyone with the private invite link can join directly. The manual join code is a fallback for people using the Join Pool screen.
               </div>
 
               <label className="text-sm font-medium text-slate-200">
@@ -1233,7 +1483,7 @@ export default function BracketApp() {
                       <div className="text-xs text-slate-400">
                         {selectedEntry.canEdit
                           ? selectedEntry.submittedAt
-                            ? "Submitted and still editable until lock."
+                            ? "Submitted and editable until the pool lock time."
                             : "Draft entry"
                           : "Read-only entry"}
                       </div>
@@ -1260,9 +1510,10 @@ export default function BracketApp() {
                       onChange={(event) => setEntryTiebreakerDraft(event.target.value)}
                       disabled={interactionLocked}
                       className="mt-2 w-full rounded-2xl border border-white/12 bg-slate-950/70 px-3 py-3 text-sm text-white outline-none disabled:opacity-50"
-                      placeholder="Total points in Finals clincher"
+                      placeholder="Combined points in Finals clincher"
                       inputMode="numeric"
                     />
+                    <TiebreakerHelperText text={tiebreakerHelperText} />
                   </label>
 
                   <div className="flex flex-wrap gap-2">
@@ -1278,6 +1529,41 @@ export default function BracketApp() {
                       {selectedEntry.submittedAt
                         ? `Submitted ${new Date(selectedEntry.submittedAt).toLocaleString()}`
                         : "Submit before lock to enter the leaderboard"}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                        Total points
+                      </div>
+                      <div className="mt-1 text-lg font-semibold text-white">
+                        {activeScore.totalPoints}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                        Max possible
+                      </div>
+                      <div className="mt-1 text-lg font-semibold text-white">
+                        {activeScore.maxPossiblePoints}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                        Correct winners
+                      </div>
+                      <div className="mt-1 text-lg font-semibold text-white">
+                        {activeScore.correctWinners}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                        Exact lengths
+                      </div>
+                      <div className="mt-1 text-lg font-semibold text-white">
+                        {activeScore.exactLengths}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1300,9 +1586,10 @@ export default function BracketApp() {
                       value={newEntryTiebreaker}
                       onChange={(event) => setNewEntryTiebreaker(event.target.value)}
                       className="mt-2 w-full rounded-2xl border border-white/12 bg-slate-950/70 px-3 py-3 text-sm text-white outline-none"
-                      placeholder="Optional"
+                      placeholder="Combined points in Finals clincher"
                       inputMode="numeric"
                     />
+                    <TiebreakerHelperText text={tiebreakerHelperText} />
                   </label>
                   <button
                     type="button"
@@ -1332,7 +1619,7 @@ export default function BracketApp() {
           </div>
           <h2 className="mt-2 text-2xl font-semibold text-white">Pool setup</h2>
           <p className="mt-2 text-sm text-slate-300/80">
-            Pools persist in the database and are shared across browser sessions using invite links and invite codes.
+            Pools persist in the database and can be joined either from a private invite link or from the separate manual-code join screen.
           </p>
 
           <div className="mt-4 space-y-4 rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
@@ -1373,13 +1660,16 @@ export default function BracketApp() {
               />
             </label>
             <label className="text-sm font-medium text-slate-200">
-              Custom invite code
+              Invite link slug / manual join code
               <input
                 value={createPoolInviteCode}
                 onChange={(event) => setCreatePoolInviteCode(event.target.value)}
                 className="mt-2 w-full rounded-2xl border border-white/12 bg-slate-950/70 px-3 py-3 text-sm text-white outline-none"
-                placeholder="Optional"
+                placeholder="Optional custom slug"
               />
+              <p className="mt-2 text-xs text-slate-400">
+                This becomes the private invite link token and also works as the manual join code from the Join Pool screen.
+              </p>
             </label>
             <label className="text-sm font-medium text-slate-200">
               First entry name
@@ -1395,9 +1685,10 @@ export default function BracketApp() {
                 value={createPoolTiebreaker}
                 onChange={(event) => setCreatePoolTiebreaker(event.target.value)}
                 className="mt-2 w-full rounded-2xl border border-white/12 bg-slate-950/70 px-3 py-3 text-sm text-white outline-none"
-                placeholder="Optional"
+                placeholder="Combined points in Finals clincher"
                 inputMode="numeric"
               />
+              <TiebreakerHelperText text={tiebreakerHelperText} />
             </label>
             <button
               type="button"
@@ -1411,9 +1702,12 @@ export default function BracketApp() {
 
           {!invitePool ? (
             <div className="mt-4 space-y-4 rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
-              <div className="text-sm font-semibold text-white">Join with an invite code</div>
+              <div className="text-sm font-semibold text-white">Join with a manual code</div>
+              <p className="text-sm text-slate-300/78">
+                Use this only if the commissioner shared the manual join code. If you already have a private invite link, open that link instead.
+              </p>
               <label className="text-sm font-medium text-slate-200">
-                Invite code
+                Manual join code
                 <input
                   value={joinInviteCode}
                   onChange={(event) => setJoinInviteCode(event.target.value)}
@@ -1443,17 +1737,18 @@ export default function BracketApp() {
                   value={joinTiebreaker}
                   onChange={(event) => setJoinTiebreaker(event.target.value)}
                   className="mt-2 w-full rounded-2xl border border-white/12 bg-slate-950/70 px-3 py-3 text-sm text-white outline-none"
-                  placeholder="Optional"
+                  placeholder="Combined points in Finals clincher"
                   inputMode="numeric"
                 />
+                <TiebreakerHelperText text={tiebreakerHelperText} />
               </label>
               <button
                 type="button"
-                onClick={() => void handleJoinPool()}
+                onClick={() => void handleJoinPool({ joinMethod: "code" })}
                 disabled={isJoiningPool}
                 className="rounded-full border border-amber-300/30 bg-amber-400/12 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:border-amber-300/50 hover:bg-amber-400/18 disabled:opacity-50"
               >
-                {isJoiningPool ? "Joining pool…" : "Join by code"}
+                {isJoiningPool ? "Joining pool…" : "Join with manual code"}
               </button>
             </div>
           ) : null}
@@ -1469,7 +1764,7 @@ export default function BracketApp() {
                 {displayPool?.name ?? "Standings"}
               </h2>
               <p className="mt-2 text-sm text-slate-300/80">
-                Standings are generated from submitted entries only and update from the shared official-results state.
+                Standings are generated from submitted entries only and scored from the shared official-results state using the live pool rules.
               </p>
             </div>
             <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-xs uppercase tracking-[0.22em] text-slate-300">
@@ -1483,9 +1778,21 @@ export default function BracketApp() {
                 const sourceEntry = ranking.entry;
 
                 return (
-                  <div
+                  <button
+                    type="button"
                     key={ranking.entry.id}
-                    className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4"
+                    onClick={() =>
+                      updateSelection({
+                        currentEntryId: ranking.entry.id,
+                        currentView: "my-bracket",
+                      })
+                    }
+                    className={cx(
+                      "w-full rounded-[22px] border bg-white/[0.04] p-4 text-left transition hover:border-white/22 hover:bg-white/[0.06]",
+                      selectedEntry?.id === ranking.entry.id
+                        ? "border-sky-300/35 bg-sky-400/10"
+                        : "border-white/10",
+                    )}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -1504,15 +1811,34 @@ export default function BracketApp() {
                           {ranking.score.totalPoints}
                         </div>
                         <div className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                          points
+                          Total points
+                        </div>
+                        <div className="mt-2 text-sm font-semibold text-slate-200">
+                          Max {ranking.score.maxPossiblePoints}
                         </div>
                       </div>
                     </div>
 
-                    <div className="mt-4 grid gap-2 sm:grid-cols-4">
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                       <div className="rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2">
                         <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
-                          Winners
+                          Winner points
+                        </div>
+                        <div className="mt-1 text-lg font-semibold text-white">
+                          {ranking.score.winnerPoints}
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                          Exact bonus
+                        </div>
+                        <div className="mt-1 text-lg font-semibold text-white">
+                          {ranking.score.exactLengthPoints}
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                          Correct winners
                         </div>
                         <div className="mt-1 text-lg font-semibold text-white">
                           {ranking.score.correctWinners}
@@ -1528,7 +1854,7 @@ export default function BracketApp() {
                       </div>
                       <div className="rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2">
                         <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
-                          Pending
+                          Pending picks
                         </div>
                         <div className="mt-1 text-lg font-semibold text-white">
                           {ranking.score.pending}
@@ -1536,14 +1862,31 @@ export default function BracketApp() {
                       </div>
                       <div className="rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2">
                         <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
-                          Tiebreaker
+                          Finals tiebreaker
                         </div>
                         <div className="mt-1 text-lg font-semibold text-white">
                           {sourceEntry?.tiebreakerGuess ?? "—"}
                         </div>
+                        <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                          {typeof ranking.score.tiebreakerDiff === "number"
+                            ? `Off by ${ranking.score.tiebreakerDiff}`
+                            : "Clincher pending"}
+                        </div>
                       </div>
                     </div>
-                  </div>
+
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+                      <div>
+                        Submitted{" "}
+                        {sourceEntry?.submittedAt
+                          ? new Date(sourceEntry.submittedAt).toLocaleString()
+                          : "—"}
+                      </div>
+                      <div>
+                        Ties: points, Finals clincher, series winners, exact lengths, earliest entry
+                      </div>
+                    </div>
+                  </button>
                 );
               })}
             </div>
@@ -1582,6 +1925,412 @@ export default function BracketApp() {
           </div>
         </section>
       </div>
+
+      {selectedEntry ? (
+        <section className="rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.82),rgba(2,6,23,0.92))] p-5">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-400">
+                Entry view
+              </div>
+              <h2 className="mt-2 text-2xl font-semibold text-white">
+                {selectedEntry.displayName} · {selectedEntry.name}
+              </h2>
+              <p className="mt-2 text-sm text-slate-300/80">
+                Click any submitted leaderboard entry to load that bracket here. Correct picks, missed picks, and live pending picks all flow from the shared official results.
+              </p>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] px-4 py-3 text-right">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Bracket status
+              </div>
+              <div className="mt-2 text-lg font-semibold text-white">
+                {selectedEntry.submittedAt ? "Submitted" : "Draft"}
+              </div>
+              <div className="text-xs text-slate-400">
+                {selectedEntry.submittedAt
+                  ? new Date(selectedEntry.submittedAt).toLocaleString()
+                  : "Still editable before lock"}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Current points
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-white">
+                {activeScore.totalPoints}
+              </div>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Max possible
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-white">
+                {activeScore.maxPossiblePoints}
+              </div>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Winner points
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-white">
+                {activeScore.winnerPoints}
+              </div>
+              <div className="text-xs text-slate-400">
+                {activeScore.correctWinners} correct winners
+              </div>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Exact bonus
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-white">
+                {activeScore.exactLengthPoints}
+              </div>
+              <div className="text-xs text-slate-400">
+                {activeScore.exactLengths} exact lengths · {activeScore.pending} pending picks
+              </div>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Finals tiebreaker
+              </div>
+              <div className="mt-2 text-lg font-semibold text-white">
+                {selectedEntry.tiebreakerGuess ?? "—"}
+              </div>
+              <div className="text-xs text-slate-400">{tiebreakerHelperText}</div>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Submission time
+              </div>
+              <div className="mt-2 text-sm font-semibold text-white">
+                {selectedEntry.submittedAt
+                  ? new Date(selectedEntry.submittedAt).toLocaleString()
+                  : "Not submitted yet"}
+              </div>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Edit access
+              </div>
+              <div className="mt-2 text-sm font-semibold text-white">
+                {selectedEntry.canEdit && !poolLocked ? "Editable" : "Read-only"}
+              </div>
+              <div className="text-xs text-slate-400">
+                {selectedEntry.canEdit && !poolLocked
+                  ? "You can still update this entry before lock."
+                  : "Viewing a locked or non-owned bracket."}
+              </div>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Pick result key
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                <span className={cx("rounded-full border px-3 py-1", pickStatusToneClasses.correct)}>
+                  Correct
+                </span>
+                <span className={cx("rounded-full border px-3 py-1", pickStatusToneClasses.incorrect)}>
+                  Incorrect
+                </span>
+                <span className={cx("rounded-full border px-3 py-1", pickStatusToneClasses.pending)}>
+                  Pending
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 xl:grid-cols-2">
+            {entryPickStatusRows.map((row) => (
+              <div
+                key={row.id}
+                className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                      {row.stage}
+                    </div>
+                    <div className="mt-2 text-base font-semibold text-white">
+                      {row.label}
+                    </div>
+                    <div className="mt-1 text-sm text-slate-300">{row.pickText}</div>
+                  </div>
+                  <div className="flex flex-col items-end gap-2 text-xs">
+                    <span
+                      className={cx(
+                        "rounded-full border px-3 py-1",
+                        pickStatusToneClasses[row.winnerTone],
+                      )}
+                    >
+                      Winner: {row.winnerStatusLabel}
+                    </span>
+                    <span
+                      className={cx(
+                        "rounded-full border px-3 py-1",
+                        pickStatusToneClasses[row.lengthTone],
+                      )}
+                    >
+                      Length: {row.lengthStatusLabel}
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-3 text-sm text-slate-300">{row.detail}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {displayPool ? (
+        <section className="rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.82),rgba(2,6,23,0.92))] p-5">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-400">
+                Pool pulse
+              </div>
+              <h2 className="mt-2 text-2xl font-semibold text-white">
+                {displayPool.name}
+              </h2>
+              <p className="mt-2 text-sm text-slate-300/80">
+                Real pool stats and pick percentages are generated from submitted entries only. The bracket canvas above stays unchanged while this section tracks the live pool picture underneath it.
+              </p>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] px-4 py-3 text-right">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Submitted entries
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-white">
+                {submittedEntries.length}
+              </div>
+              <div className="text-xs text-slate-400">
+                of {poolEntries.length} total entries
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Total entries
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-white">
+                {poolEntries.length}
+              </div>
+              <div className="text-xs text-slate-400">
+                {displayPool.participantCount ?? 0} pool members
+              </div>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Current leader
+              </div>
+              <div className="mt-2 text-base font-semibold text-white">
+                {leader ? `${leader.entry.displayName} · ${leader.entry.name}` : "No leader yet"}
+              </div>
+              <div className="text-xs text-slate-400">
+                {leader ? `${leader.score.totalPoints} points` : "Waiting for submitted entries"}
+              </div>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Most-picked champion
+              </div>
+              <div className="mt-2 text-base font-semibold text-white">
+                {mostPickedChampion?.team?.displayName ?? "No champion picks yet"}
+              </div>
+              <div className="text-xs text-slate-400">
+                {mostPickedChampion ? `${mostPickedChampion.percent}% of submitted brackets` : "Submit entries to see the pool lean"}
+              </div>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Lock status
+              </div>
+              <div className="mt-2 text-base font-semibold text-white">
+                {poolLocked ? "Locked" : "Open"}
+              </div>
+              <div className="text-xs text-slate-400">
+                {formatAbsolute(displayPool.lockAt)}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Champion pick split
+              </div>
+              {championPickLeaders.length ? (
+                <div className="mt-4 space-y-3">
+                  {championPickLeaders.map((pick) => (
+                    <div
+                      key={pick.teamId}
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3"
+                    >
+                      <div className="text-sm font-semibold text-white">
+                        {pick.team?.displayName ?? pick.teamId}
+                      </div>
+                      <div className="text-sm font-semibold text-slate-200">
+                        {pick.percent}%
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-dashed border-white/12 bg-white/[0.03] px-4 py-5 text-sm text-slate-300">
+                  No submitted champion picks yet.
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                Pool join security
+              </div>
+              <div className="mt-3 space-y-2 text-sm text-slate-200">
+                <div>Private invite links can join the pool directly.</div>
+                <div>Manual join codes only work from the Join Pool screen.</div>
+                <div>Invite links no longer expose the full pool leaderboard before a user joins.</div>
+                <div>Direct shared bracket links still work for the specific submitted entry being shared.</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+              Pick percentages by matchup
+            </div>
+            {submittedEntries.length ? (
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {matchupPopularityCards.map((card) => (
+                  <div
+                    key={card.id}
+                    className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4"
+                  >
+                    <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                      {card.roundLabel}
+                    </div>
+                    <div className="mt-2 text-base font-semibold text-white">
+                      {card.label}
+                    </div>
+                    <div className="mt-1 text-sm text-slate-300">{card.note}</div>
+                    {card.picks.length ? (
+                      <div className="mt-4 space-y-2">
+                        {card.picks.map((pick) => (
+                          <div
+                            key={pick.teamId}
+                            className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-2.5"
+                          >
+                            <div className="text-sm font-semibold text-white">
+                              {pick.team?.displayName ?? pick.teamId}
+                            </div>
+                            <div className="text-sm font-semibold text-slate-200">
+                              {pick.percent}%
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-2xl border border-dashed border-white/12 bg-white/[0.03] px-4 py-4 text-sm text-slate-300">
+                        No submitted picks yet for this matchup.
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-[24px] border border-dashed border-white/12 bg-white/[0.03] px-4 py-6 text-sm text-slate-300">
+                Pool percentages will appear as soon as the first submitted bracket is in the pool.
+              </div>
+            )}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.82),rgba(2,6,23,0.92))] p-5">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-400">
+              Rules / Scoring
+            </div>
+            <h2 className="mt-2 text-2xl font-semibold text-white">
+              How the pool scores
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm text-slate-300/80">
+              Play-in games are single-elimination, every playoff round is best-of-seven, and exact series-length bonus points only count when the correct team also advances.
+            </p>
+          </div>
+          <div className="rounded-[22px] border border-white/10 bg-white/[0.04] px-4 py-3 text-right">
+            <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+              Perfect bracket
+            </div>
+            <div className="mt-2 text-2xl font-semibold text-white">
+              {MAX_BRACKET_POINTS}
+            </div>
+            <div className="text-xs text-slate-400">maximum possible points</div>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 xl:grid-cols-[1.35fr_0.95fr]">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {scoringRows.map((row) => (
+              <div
+                key={row.label}
+                className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4"
+              >
+                <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-400">
+                  {row.label}
+                </div>
+                <div className="mt-2 text-sm text-slate-300">{row.detail}</div>
+                <div className="mt-4 text-xl font-semibold text-white">
+                  {row.winnerPoints} pts
+                </div>
+                <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                  Correct winner
+                </div>
+                <div className="mt-3 text-lg font-semibold text-white">
+                  {row.exactLengthPoints ? `+${row.exactLengthPoints} pts` : "—"}
+                </div>
+                <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                  {row.exactLengthPoints ? "Exact length bonus" : "No length bonus"}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-400">
+                Leaderboard tiebreakers
+              </div>
+              <ol className="mt-3 space-y-2 text-sm text-slate-200">
+                <li>1. Total points</li>
+                <li>2. Closest Finals tiebreaker guess once the clincher total is known</li>
+                <li>3. Most correct series winners</li>
+                <li>4. Most exact series lengths</li>
+                <li>5. Earliest submitted entry</li>
+              </ol>
+            </div>
+
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-400">
+                Lock + Finals tiebreaker
+              </div>
+              <div className="mt-3 text-sm text-slate-200">
+                {lockStatusBody}
+              </div>
+              <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-3 text-sm text-slate-300">
+                {tiebreakerHelperText}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

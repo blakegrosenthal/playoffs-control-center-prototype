@@ -14,9 +14,9 @@ const manrope = Manrope({
 });
 
 export const metadata: Metadata = {
-  title: "NBA Playoffs Control Center",
+  title: "Run the Playoffs",
   description:
-    "A mobile-first NBA Playoffs product prototype where the bracket becomes the social control center for predictions, discussion, friend picks, and playoff navigation.",
+    "A polished NBA Playoffs bracket app for the 2025-26 postseason with play-in picks, best-of-seven predictions, live results tracking, and pool leaderboards.",
 };
 
 export default function RootLayout({
