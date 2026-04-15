@@ -1,5 +1,5 @@
-import BracketApp from "@/components/BracketApp";
+import PlayoffsPrototypeApp from "@/components/PlayoffsPrototypeApp";
 
 export default function HomePage() {
-  return <BracketApp />;
+  return <PlayoffsPrototypeApp />;
 }
