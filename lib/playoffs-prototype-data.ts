@@ -340,8 +340,8 @@ const placeholderSlot = (
 
 const east8Placeholder = placeholderSlot(
   "east-8",
-  "East 8 Seed",
-  "East 8 Seed",
+  "East Play-In Winner",
+  "East Play-In Winner",
   8,
   ["cha", "phi", "orl"],
   "East 8 seed settles Friday",
@@ -358,8 +358,8 @@ const east7Placeholder = placeholderSlot(
 
 const west8Placeholder = placeholderSlot(
   "west-8",
-  "West 8 Seed",
-  "West 8 Seed",
+  "West Play-In Winner",
+  "West Play-In Winner",
   8,
   ["phx", "lac", "gsw"],
   "West 8 seed settles Friday",
