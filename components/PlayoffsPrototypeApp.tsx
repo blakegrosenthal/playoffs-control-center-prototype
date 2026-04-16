@@ -34,7 +34,7 @@ type FriendActivity = {
 
 const wagerOptions = [50, 120, 250, 500];
 const bracketGridTemplateColumns = "minmax(0, 1.42fr) 8px minmax(0, 1.12fr) 8px minmax(0, 0.98fr)";
-const bracketGridTemplateRows = "repeat(7, 74px)";
+const bracketGridTemplateRows = "repeat(7, 88px)";
 
 const conferenceTrees = [
   {
@@ -163,7 +163,8 @@ function getSlotLabel(slot: PrototypeSlot) {
 
 function getCompactSlotLabel(slot: PrototypeSlot) {
   return slot.shortLabel
-    .replace("Play-In Winner", "PI Winner")
+    .replace("Play-In Winner", "Play-In")
+    .replace("Champion", "Champ")
     .replace("Conference", "Conf.");
 }
 
@@ -405,7 +406,7 @@ function SlotAvatar({
 }) {
   const teams = getSlotTeams(slot);
   const shellClass = compact
-    ? "h-6 w-6 rounded-[14px]"
+    ? "h-5 w-5 rounded-[12px]"
     : "h-8 w-8 rounded-[16px]";
 
   if (slot.type === "team" && slot.teamId) {
@@ -450,15 +451,15 @@ function SlotAvatar({
             key={team.id}
             className={cx(
               "grid place-items-center rounded-full border border-white/25 bg-slate-950/70 p-0.5",
-              compact ? "h-3.5 w-3.5" : "h-4.5 w-4.5",
+              compact ? "h-3 w-3" : "h-4.5 w-4.5",
               index > 0 && "-ml-1.5",
             )}
           >
             <Image
               src={team.logo}
               alt={`${team.shortName} logo`}
-              width={compact ? 10 : 12}
-              height={compact ? 10 : 12}
+              width={compact ? 9 : 12}
+              height={compact ? 9 : 12}
               unoptimized
               className="h-auto w-auto"
             />
@@ -482,12 +483,7 @@ function TeamRow({
     <div className="flex items-center gap-1.5">
       <SlotAvatar slot={slot} compact={compact} />
       <div className="min-w-0 flex-1 overflow-hidden">
-        <p
-          className={cx(
-            "truncate font-semibold text-white",
-            compact ? "text-[10.5px] leading-[1.1]" : "text-[12px] leading-[1.1]",
-          )}
-        >
+        <p className={cx("truncate font-semibold text-white", compact ? "text-[10px] leading-none" : "text-[12px] leading-[1.1]")}>
           {label}
         </p>
       </div>
@@ -519,18 +515,18 @@ function MatchupNode({
       <div
         className={cx(
           "relative flex h-full flex-col justify-between overflow-hidden border",
-          featured ? "min-h-[86px] rounded-[20px] px-3 py-2.5" : "rounded-[17px] px-2.5 py-2",
+          featured ? "min-h-[88px] rounded-[20px] px-3 py-2.5" : "rounded-[17px] px-2.5 py-1.5",
         )}
         style={getNodeStyle(series, pathState)}
       >
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.08),transparent_38%)]" />
-        <div className="relative space-y-1">
+        <div className="relative space-y-0.5">
           <TeamRow slot={series.teamA} compact />
           <TeamRow slot={series.teamB} compact />
         </div>
-        <div className="relative mt-1">
+        <div className="relative mt-1.5">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-300">
+            <p className="text-[9px] font-semibold uppercase leading-none tracking-[0.1em] text-slate-300">
               {getSeriesSummary(series)}
             </p>
             {friendInitials.length ? (
@@ -538,7 +534,7 @@ function MatchupNode({
                 {friendInitials.map((initial, index) => (
                   <span
                     key={`${series.id}-${initial}-${index}`}
-                    className="grid h-4 w-4 place-items-center rounded-full border border-slate-950 bg-white text-[8px] font-black text-slate-950"
+                    className="grid h-3.5 w-3.5 place-items-center rounded-full border border-slate-950 bg-white text-[7px] font-black text-slate-950"
                   >
                     {initial}
                   </span>
@@ -546,7 +542,7 @@ function MatchupNode({
               </div>
             ) : null}
           </div>
-          <p className="mt-0.5 truncate text-[10.5px] font-semibold text-slate-100">
+          <p className="mt-1 truncate text-[10.5px] font-semibold leading-none text-slate-100">
             {favorite.percent}% picked {favorite.label}
           </p>
         </div>
@@ -647,7 +643,7 @@ function ConferenceBracket({
             backgroundColor: hexToRgba(accent, 0.08),
           }}
         >
-          Tap to act
+          Tap any matchup
         </span>
       </div>
 
@@ -978,7 +974,7 @@ function PlayoffsPrototypeApp() {
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {prediction ? (
                     <span className="rounded-full border border-sky-400/20 bg-sky-500/10 px-2 py-1 text-[10px] font-semibold text-sky-100">
-                      Your pick: {getWinnerLabel(selectedSeries, prediction.winner)}
+                      ✓ Your pick: {getWinnerLabel(selectedSeries, prediction.winner)}
                     </span>
                   ) : null}
                   {wager ? (
@@ -1103,9 +1099,7 @@ function PlayoffsPrototypeApp() {
                       Max
                     </button>
                   </div>
-                  <p className="mt-2 text-[11px] text-slate-400">
-                    You have {coins} Coins available. Max wager: {maxWagerAmount}.
-                  </p>
+                  <p className="mt-2 text-[11px] text-slate-400">Available: {coins} coins</p>
                   <button
                     type="button"
                     onClick={confirmWager}

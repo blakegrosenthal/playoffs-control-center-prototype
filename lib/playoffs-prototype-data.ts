@@ -367,8 +367,8 @@ const west8Placeholder = placeholderSlot(
 
 const eastSemisTop = placeholderSlot(
   "east-semis-top",
-  "DET / East PI",
-  "DET / East PI",
+  "DET / Play-In",
+  "DET / Play-In",
   undefined,
   ["det", "cha", "phi", "orl"],
   "Projected May 4",
@@ -385,8 +385,8 @@ const eastSemisBottom = placeholderSlot(
 
 const eastSemisMiddle = placeholderSlot(
   "east-semis-middle",
-  "BOS / East PI",
-  "BOS / East PI",
+  "BOS / Play-In",
+  "BOS / Play-In",
   undefined,
   ["bos", "phi", "orl"],
   "Projected May 5",
@@ -403,8 +403,8 @@ const eastSemisLower = placeholderSlot(
 
 const westSemisTop = placeholderSlot(
   "west-semis-top",
-  "OKC / West PI",
-  "OKC / West PI",
+  "OKC / Play-In",
+  "OKC / Play-In",
   undefined,
   ["okc", "phx", "lac", "gsw"],
   "Projected May 4",
@@ -439,8 +439,8 @@ const westSemisLower = placeholderSlot(
 
 const eastFinalsTop = placeholderSlot(
   "east-finals-top",
-  "East Semis A",
-  "East Semis A",
+  "East SF A",
+  "East SF A",
   undefined,
   ["det", "cle", "tor", "cha", "phi", "orl"],
   "Projected May 19",
@@ -448,8 +448,8 @@ const eastFinalsTop = placeholderSlot(
 
 const eastFinalsBottom = placeholderSlot(
   "east-finals-bottom",
-  "East Semis B",
-  "East Semis B",
+  "East SF B",
+  "East SF B",
   undefined,
   ["bos", "nyk", "atl", "phi", "orl"],
   "Projected May 20",
@@ -457,8 +457,8 @@ const eastFinalsBottom = placeholderSlot(
 
 const westFinalsTop = placeholderSlot(
   "west-finals-top",
-  "West Semis A",
-  "West Semis A",
+  "West SF A",
+  "West SF A",
   undefined,
   ["okc", "lal", "hou", "phx", "lac", "gsw"],
   "Projected May 19",
@@ -466,8 +466,8 @@ const westFinalsTop = placeholderSlot(
 
 const westFinalsBottom = placeholderSlot(
   "west-finals-bottom",
-  "West Semis B",
-  "West Semis B",
+  "West SF B",
+  "West SF B",
   undefined,
   ["sas", "por", "den", "min"],
   "Projected May 20",
@@ -475,8 +475,8 @@ const westFinalsBottom = placeholderSlot(
 
 const finalsEast = placeholderSlot(
   "finals-east",
-  "East Champion",
-  "East Champion",
+  "East Champ",
+  "East Champ",
   undefined,
   ["det", "bos", "nyk", "cle", "tor", "atl", "phi", "orl", "cha"],
   "Projected June 3",
@@ -484,8 +484,8 @@ const finalsEast = placeholderSlot(
 
 const finalsWest = placeholderSlot(
   "finals-west",
-  "West Champion",
-  "West Champion",
+  "West Champ",
+  "West Champ",
   undefined,
   ["okc", "sas", "den", "lal", "hou", "min", "por", "phx", "lac", "gsw"],
   "Projected June 3",
@@ -1183,7 +1183,7 @@ export const prototypeSeries: PrototypeSeries[] = [
     round: "Conference Semifinals",
     teamA: eastSemisTop,
     teamB: eastSemisBottom,
-    score: "Awaiting winners",
+    score: "TBD",
     status: "Pathway preview",
     statusTone: "pending",
     cardNote: "Detroit's side meets Cleveland-Toronto on the upper East branch.",
@@ -1245,7 +1245,7 @@ export const prototypeSeries: PrototypeSeries[] = [
     round: "Conference Semifinals",
     teamA: eastSemisMiddle,
     teamB: eastSemisLower,
-    score: "Awaiting winners",
+    score: "TBD",
     status: "Pathway preview",
     statusTone: "pending",
     cardNote: "Boston's branch collides with Knicks-Hawks in the lower East.",
@@ -1307,7 +1307,7 @@ export const prototypeSeries: PrototypeSeries[] = [
     round: "Conference Semifinals",
     teamA: westSemisTop,
     teamB: westSemisBottom,
-    score: "Awaiting winners",
+    score: "TBD",
     status: "Pathway preview",
     statusTone: "pending",
     cardNote: "OKC's branch could crash directly into Lakers-Rockets.",
@@ -1369,7 +1369,7 @@ export const prototypeSeries: PrototypeSeries[] = [
     round: "Conference Semifinals",
     teamA: westSemisMiddle,
     teamB: westSemisLower,
-    score: "Awaiting winners",
+    score: "TBD",
     status: "Pathway preview",
     statusTone: "pending",
     cardNote: "Spurs-Blazers and Nuggets-Wolves feed the grindhouse side of the West.",
@@ -1431,7 +1431,7 @@ export const prototypeSeries: PrototypeSeries[] = [
     round: "Conference Finals",
     teamA: eastFinalsTop,
     teamB: eastFinalsBottom,
-    score: "Awaiting winners",
+    score: "TBD",
     status: "Pathway preview",
     statusTone: "pending",
     cardNote: "Detroit and Boston still own the highest East Finals share, but New York keeps rising.",
@@ -1493,7 +1493,7 @@ export const prototypeSeries: PrototypeSeries[] = [
     round: "Conference Finals",
     teamA: westFinalsTop,
     teamB: westFinalsBottom,
-    score: "Awaiting winners",
+    score: "TBD",
     status: "Pathway preview",
     statusTone: "pending",
     cardNote: "One branch has OKC-Lakers energy; the other has Spurs-Nuggets danger.",
@@ -1555,7 +1555,7 @@ export const prototypeSeries: PrototypeSeries[] = [
     round: "NBA Finals",
     teamA: finalsEast,
     teamB: finalsWest,
-    score: "Awaiting finalists",
+    score: "TBD",
     status: "Championship preview",
     statusTone: "pending",
     cardNote: "The last card in the bracket stays saved, shared and argued over more than any other.",
