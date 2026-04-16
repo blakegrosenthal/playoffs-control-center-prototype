@@ -349,8 +349,8 @@ const east8Placeholder = placeholderSlot(
 
 const east7Placeholder = placeholderSlot(
   "east-7",
-  "East 7 Seed",
-  "East 7 Seed",
+  "East Play-In Winner",
+  "East Play-In Winner",
   7,
   ["phi", "orl"],
   "Tips tonight on Prime",
@@ -367,8 +367,8 @@ const west8Placeholder = placeholderSlot(
 
 const eastSemisTop = placeholderSlot(
   "east-semis-top",
-  "DET / East 8",
-  "DET / East 8",
+  "DET / East PI",
+  "DET / East PI",
   undefined,
   ["det", "cha", "phi", "orl"],
   "Projected May 4",
@@ -385,8 +385,8 @@ const eastSemisBottom = placeholderSlot(
 
 const eastSemisMiddle = placeholderSlot(
   "east-semis-middle",
-  "BOS / East 7",
-  "BOS / East 7",
+  "BOS / East PI",
+  "BOS / East PI",
   undefined,
   ["bos", "phi", "orl"],
   "Projected May 5",
@@ -403,8 +403,8 @@ const eastSemisLower = placeholderSlot(
 
 const westSemisTop = placeholderSlot(
   "west-semis-top",
-  "OKC / West 8",
-  "OKC / West 8",
+  "OKC / West PI",
+  "OKC / West PI",
   undefined,
   ["okc", "phx", "lac", "gsw"],
   "Projected May 4",
@@ -1698,7 +1698,7 @@ export const communityActivity: PrototypeActivityItem[] = [
     id: "activity-2",
     user: "Jordan",
     action: "commented on",
-    detail: "Celtics vs East 7 Seed",
+    detail: "Celtics vs East Play-In Winner",
     tone: "comment",
     time: "6m ago",
     seriesId: "east-r1-2",
@@ -1805,7 +1805,7 @@ export const leaderboard: PrototypeLeaderboardEntry[] = [
       {
         id: "jordan-3",
         round: "Round 1",
-        matchup: "Celtics vs East 7",
+        matchup: "Celtics vs East PI",
         pick: "Magic in 7",
         status: "pending",
         note: "Leaning all the way into the Orlando defense theory.",
