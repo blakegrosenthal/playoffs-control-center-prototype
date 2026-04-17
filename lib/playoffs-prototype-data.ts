@@ -693,7 +693,7 @@ export const prototypeSeries: PrototypeSeries[] = [
       {
         name: "Reese",
         side: "teamA",
-        confidence: "60 Coins",
+        confidence: "60 Rax",
         note: "Already wagered on Brunson in Game 1.",
       },
     ],
@@ -1113,7 +1113,7 @@ export const prototypeSeries: PrototypeSeries[] = [
       {
         name: "Jordan",
         side: "teamA",
-        confidence: "220 Coins",
+        confidence: "220 Rax",
         note: "Already wagered on the Lakers to win Game 1.",
       },
     ],
@@ -1706,7 +1706,7 @@ export const communityActivity: PrototypeActivityItem[] = [
   {
     id: "activity-3",
     user: "Maya",
-    action: "wagered 180 Coins on",
+    action: "wagered 180 Rax on",
     detail: "Rockets Game 1 upset",
     tone: "wager",
     time: "9m ago",
@@ -1925,11 +1925,11 @@ export const prototypeData = {
     featuredSeriesId: "west-r1-4",
     heroTitle: "The bracket is the control center now.",
     heroCopy:
-      "Track every series, make picks, wager Coins, follow friend brackets and jump into the loudest playoff threads from one map.",
+      "Track every series, make picks, wager Rax, follow friend brackets and jump into the loudest playoff threads from one map.",
   },
   user: {
     name: "You",
-    coins: 1280,
+    rax: 1280,
     rank: 27,
     accuracy: "78%",
     streak: "4 straight bracket calls",

@@ -18,6 +18,7 @@ type SheetState = {
   seriesId: string;
 };
 type PredictionRecord = {
+  length: number;
   winner: SlotSide;
 };
 type WagerRecord = {
@@ -33,8 +34,11 @@ type FriendActivity = {
 };
 
 const wagerOptions = [50, 120, 250, 500];
+const seriesLengthOptions = [4, 5, 6, 7];
 const bracketGridTemplateColumns = "minmax(0, 1.42fr) 8px minmax(0, 1.12fr) 8px minmax(0, 0.98fr)";
 const bracketGridTemplateRows = "repeat(7, 88px)";
+const exactWinnerReward = 40;
+const exactLengthBonus = 25;
 
 const conferenceTrees = [
   {
@@ -75,6 +79,20 @@ const activityToneClasses: Record<FriendActivity["tone"], string> = {
   comment: "border-violet-400/20 bg-violet-500/10 text-violet-100",
   pick: "border-sky-400/20 bg-sky-500/10 text-sky-100",
   wager: "border-amber-400/20 bg-amber-500/10 text-amber-100",
+};
+const slotCodeOverrides: Record<string, string> = {
+  "east-7": "E7",
+  "east-8": "E8",
+  "west-8": "W8",
+  "east-semis-top": "DET / E8",
+  "east-semis-middle": "BOS / E7",
+  "east-finals-top": "E SF A",
+  "east-finals-bottom": "E SF B",
+  "west-semis-top": "OKC / W8",
+  "west-finals-top": "W SF A",
+  "west-finals-bottom": "W SF B",
+  "finals-east": "E Champ",
+  "finals-west": "W Champ",
 };
 
 const cx = (...classes: Array<string | false | null | undefined>) =>
@@ -150,9 +168,9 @@ function getSeriesGradient(series: PrototypeSeries) {
 
   return {
     backgroundImage: `
-      linear-gradient(150deg, ${hexToRgba(left.primary, 0.18)}, rgba(6, 10, 20, 0.96) 52%, ${hexToRgba(right.primary, 0.18)}),
-      radial-gradient(circle at top left, ${hexToRgba(left.secondary, 0.12)}, transparent 40%),
-      radial-gradient(circle at bottom right, ${hexToRgba(right.secondary, 0.12)}, transparent 42%)
+      linear-gradient(150deg, ${hexToRgba(left.primary, 0.13)}, rgba(6, 10, 20, 0.98) 52%, ${hexToRgba(right.primary, 0.13)}),
+      radial-gradient(circle at top left, ${hexToRgba(left.secondary, 0.07)}, transparent 40%),
+      radial-gradient(circle at bottom right, ${hexToRgba(right.secondary, 0.07)}, transparent 42%)
     `,
   };
 }
@@ -161,35 +179,58 @@ function getSlotLabel(slot: PrototypeSlot) {
   return slot.shortLabel;
 }
 
-function getCompactSlotLabel(slot: PrototypeSlot) {
-  return slot.shortLabel
-    .replace("Play-In Winner", "Play-In")
-    .replace("Champion", "Champ")
-    .replace("Conference", "Conf.");
+function getSlotCode(slot: PrototypeSlot) {
+  if (slot.type === "team" && slot.teamId) {
+    return slot.teamId.toUpperCase();
+  }
+
+  return (
+    slotCodeOverrides[slot.id] ??
+    slot.shortLabel
+      .replace("Play-In Winner", "PI")
+      .replace("Champion", "Champ")
+      .replace("Conference", "Conf.")
+  );
 }
 
 function getWinnerLabel(series: PrototypeSeries, side: SlotSide) {
   return side === "teamA" ? getSlotLabel(series.teamA) : getSlotLabel(series.teamB);
 }
 
-function getCommunityFavorite(series: PrototypeSeries) {
+function getWinnerCode(series: PrototypeSeries, side: SlotSide) {
+  return side === "teamA" ? getSlotCode(series.teamA) : getSlotCode(series.teamB);
+}
+
+function getCommunityFavorite(series: PrototypeSeries, labelStyle: "full" | "code" = "full") {
   if (series.community.teamA >= series.community.teamB) {
     return {
-      label: getSlotLabel(series.teamA),
+      label: labelStyle === "code" ? getSlotCode(series.teamA) : getSlotLabel(series.teamA),
       percent: series.community.teamA,
       side: "teamA" as const,
     };
   }
 
   return {
-    label: getSlotLabel(series.teamB),
+    label: labelStyle === "code" ? getSlotCode(series.teamB) : getSlotLabel(series.teamB),
     percent: series.community.teamB,
     side: "teamB" as const,
   };
 }
 
 function getSeriesSummary(series: PrototypeSeries) {
+  if (series.score === "0-0") {
+    return "Series tied 0-0";
+  }
+
   return series.score.includes("-") ? `Series ${series.score}` : series.score;
+}
+
+function getBracketStatusLabel(series: PrototypeSeries) {
+  if (series.score === "0-0") {
+    return "Game 1 upcoming";
+  }
+
+  return getSeriesSummary(series);
 }
 
 function getPathSet(seriesId: string | null) {
@@ -243,34 +284,25 @@ function getNodeStyle(series: PrototypeSeries, pathState: PathState = "idle"): C
   const engagement = getEngagementSnapshot(series);
   const isHighlighted = pathState !== "idle";
   const borderAlpha = pathState === "selected"
-    ? 0.72
+    ? 0.86
     : pathState === "path"
-      ? 0.42
+      ? 0.5
       : engagement.intensity === "high"
         ? 0.26
         : engagement.intensity === "medium"
           ? 0.18
           : 0.1;
-  const glowAlpha = pathState === "selected"
-    ? 0.28
-    : pathState === "path"
-      ? 0.18
-      : engagement.intensity === "high"
-        ? 0.11
-        : engagement.intensity === "medium"
-          ? 0.08
-          : 0.04;
 
   return {
     ...getSeriesGradient(series),
     borderColor: hexToRgba(colors.secondary, borderAlpha),
     boxShadow:
       pathState === "selected"
-        ? `0 0 0 1px ${hexToRgba(colors.secondary, 0.42)}, 0 16px 28px rgba(2, 6, 23, 0.3), 0 0 28px ${hexToRgba(colors.secondary, glowAlpha)}`
+        ? `0 0 0 2px ${hexToRgba(colors.secondary, 0.5)}, 0 12px 24px rgba(2, 6, 23, 0.34)`
         : isHighlighted
-          ? `0 0 0 1px ${hexToRgba(colors.secondary, 0.18)}, 0 12px 22px rgba(2, 6, 23, 0.22), 0 0 18px ${hexToRgba(colors.secondary, glowAlpha)}`
+          ? `0 0 0 1px ${hexToRgba(colors.secondary, 0.24)}, 0 10px 20px rgba(2, 6, 23, 0.24)`
           : engagement.intensity === "high"
-            ? `0 12px 22px rgba(2, 6, 23, 0.2), 0 0 16px ${hexToRgba(colors.secondary, glowAlpha)}`
+            ? "0 10px 20px rgba(2, 6, 23, 0.24)"
             : "0 8px 16px rgba(2, 6, 23, 0.16)",
   };
 }
@@ -303,7 +335,7 @@ function buildFriendActivity(series: PrototypeSeries) {
     }
 
     items.push(
-      friend.confidence.includes("Coins")
+      friend.confidence.includes("Rax")
         ? {
             id: `${series.id}-${friend.name}-wager`,
             detail: `on ${getWinnerLabel(series, friend.side)}`,
@@ -378,7 +410,7 @@ function ChatIcon() {
   );
 }
 
-function CoinsIcon() {
+function RaxIcon() {
   return (
     <svg
       viewBox="0 0 20 20"
@@ -477,13 +509,13 @@ function TeamRow({
   slot: PrototypeSlot;
   compact?: boolean;
 }) {
-  const label = compact ? getCompactSlotLabel(slot) : getSlotLabel(slot);
+  const label = compact ? getSlotCode(slot) : getSlotLabel(slot);
 
   return (
     <div className="flex items-center gap-1.5">
       <SlotAvatar slot={slot} compact={compact} />
       <div className="min-w-0 flex-1 overflow-hidden">
-        <p className={cx("truncate font-semibold text-white", compact ? "text-[10px] leading-none" : "text-[12px] leading-[1.1]")}>
+        <p className={cx("font-semibold text-white", compact ? "whitespace-nowrap text-[10px] leading-none" : "truncate text-[12px] leading-[1.1]")}>
           {label}
         </p>
       </div>
@@ -507,7 +539,7 @@ function MatchupNode({
   series: PrototypeSeries;
   onOpen: () => void;
 }) {
-  const favorite = getCommunityFavorite(series);
+  const favorite = getCommunityFavorite(series, "code");
   const friendInitials = series.friends.slice(0, 2).map((friend) => friend.name.slice(0, 1).toUpperCase());
 
   return (
@@ -527,7 +559,7 @@ function MatchupNode({
         <div className="relative mt-1.5">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[9px] font-semibold uppercase leading-none tracking-[0.1em] text-slate-300">
-              {getSeriesSummary(series)}
+              {getBracketStatusLabel(series)}
             </p>
             {friendInitials.length ? (
               <div className="flex shrink-0 -space-x-1" aria-label={`${friendInitials.length} friends picked`}>
@@ -542,7 +574,7 @@ function MatchupNode({
               </div>
             ) : null}
           </div>
-          <p className="mt-1 truncate text-[10.5px] font-semibold leading-none text-slate-100">
+          <p className="mt-1 whitespace-nowrap text-[10.5px] font-semibold leading-none text-slate-100">
             {favorite.percent}% picked {favorite.label}
           </p>
         </div>
@@ -552,20 +584,20 @@ function MatchupNode({
 }
 
 function BracketConnector({ accent, active = false }: { accent: string; active?: boolean }) {
-  const lineColor = hexToRgba(accent, active ? 0.48 : 0.14);
+  const lineColor = hexToRgba(accent, active ? 0.72 : 0.38);
 
   return (
     <div className="relative h-full w-full">
-      <div className="absolute left-0 top-1/4 w-[52%] border-t" style={{ borderColor: lineColor }} />
-      <div className="absolute left-0 top-3/4 w-[52%] border-t" style={{ borderColor: lineColor }} />
+      <div className="absolute left-0 top-1/4 h-[2px] w-[52%] rounded-full" style={{ backgroundColor: lineColor }} />
+      <div className="absolute left-0 top-3/4 h-[2px] w-[52%] rounded-full" style={{ backgroundColor: lineColor }} />
       <div
-        className="absolute left-[52%] top-1/4 border-l"
+        className="absolute left-[52%] top-1/4 w-[2px] rounded-full"
         style={{
-          borderColor: lineColor,
+          backgroundColor: lineColor,
           height: "50%",
         }}
       />
-      <div className="absolute right-0 top-1/2 w-[48%] border-t" style={{ borderColor: lineColor }} />
+      <div className="absolute right-0 top-1/2 h-[2px] w-[48%] rounded-full" style={{ backgroundColor: lineColor }} />
     </div>
   );
 }
@@ -581,7 +613,7 @@ function ActionButton({
   icon?: ReactNode;
   label: string;
   onClick: () => void;
-  variant?: "primary" | "secondary";
+  variant?: "primary" | "secondary" | "thread";
 }) {
   return (
     <button
@@ -592,13 +624,90 @@ function ActionButton({
         active
           ? "border-white bg-white text-slate-950"
           : variant === "primary"
-            ? "border-sky-300/35 bg-sky-400/20 text-sky-50 shadow-[0_0_24px_rgba(56,189,248,0.12)]"
-            : "border-white/12 bg-white/[0.055] text-white",
+            ? "border-sky-300/35 bg-sky-400/20 text-sky-50"
+            : variant === "thread"
+              ? "border-white/18 bg-white text-slate-950"
+              : "border-white/12 bg-white/[0.055] text-white",
       )}
     >
       {icon}
       <span>{label}</span>
     </button>
+  );
+}
+
+function SheetCard({
+  children,
+  className,
+  style,
+}: {
+  children: ReactNode;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  return (
+    <div
+      className={cx(
+        "rounded-[20px] border border-white/10 bg-[#0b111c] shadow-[0_12px_28px_rgba(2,6,23,0.28)]",
+        className,
+      )}
+      style={style}
+    >
+      {children}
+    </div>
+  );
+}
+
+function CommunitySplit({ series }: { series: PrototypeSeries }) {
+  const favorite = getCommunityFavorite(series, "code");
+  const engagement = getEngagementSnapshot(series);
+  const leftColors = getSlotColors(series.teamA);
+  const rightColors = getSlotColors(series.teamB);
+
+  return (
+    <SheetCard className="mt-3 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Community Pick</p>
+          <p className="mt-1 text-[13px] font-semibold text-white">
+            {favorite.percent}% on {favorite.label}
+          </p>
+        </div>
+        <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-[10px] font-semibold text-slate-200">
+          {getSeriesSummary(series)}
+        </span>
+      </div>
+
+      <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full"
+          style={{
+            width: `${series.community.teamA}%`,
+            backgroundColor: hexToRgba(leftColors.secondary, 0.95),
+          }}
+        />
+        <div
+          className="h-full flex-1"
+          style={{ backgroundColor: hexToRgba(rightColors.secondary, 0.88) }}
+        />
+      </div>
+      <div className="mt-1.5 flex items-center justify-between text-[10px] font-semibold text-slate-300">
+        <span>{getSlotCode(series.teamA)} {series.community.teamA}%</span>
+        <span>{getSlotCode(series.teamB)} {series.community.teamB}%</span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-1.5">
+        <div className="rounded-[14px] border border-white/10 bg-white/[0.04] px-2 py-2">
+          <p className="text-[10.5px] font-semibold leading-tight text-white">🔥 {series.fansDiscussing} discussing</p>
+        </div>
+        <div className="rounded-[14px] border border-white/10 bg-white/[0.04] px-2 py-2">
+          <p className="text-[10.5px] font-semibold leading-tight text-white">📊 {engagement.predictionsLabel} predictions</p>
+        </div>
+        <div className="rounded-[14px] border border-white/10 bg-white/[0.04] px-2 py-2">
+          <p className="text-[10.5px] font-semibold leading-tight text-white">💸 {engagement.wagersLabel} wagered</p>
+        </div>
+      </div>
+    </SheetCard>
   );
 }
 
@@ -761,10 +870,11 @@ function FinalsBracket({
 }
 
 function PlayoffsPrototypeApp() {
-  const [coins, setCoins] = useState(prototypeData.user.coins);
+  const [rax, setRax] = useState(prototypeData.user.rax);
   const [toast, setToast] = useState<string | null>(null);
   const [sheet, setSheet] = useState<SheetState | null>(null);
   const [draftWinner, setDraftWinner] = useState<SlotSide | null>(null);
+  const [draftLength, setDraftLength] = useState<number>(6);
   const [draftWager, setDraftWager] = useState<number>(120);
   const [predictions, setPredictions] = useState<Record<string, PredictionRecord>>({});
   const [wagers, setWagers] = useState<Record<string, WagerRecord>>({});
@@ -785,7 +895,7 @@ function PlayoffsPrototypeApp() {
   const sheetMode = sheet?.mode ?? "overview";
   const prediction = selectedSeries ? predictions[selectedSeries.id] : null;
   const wager = selectedSeries ? wagers[selectedSeries.id] : null;
-  const maxWagerAmount = selectedSeries ? coins + (wager?.amount ?? 0) : coins;
+  const maxWagerAmount = selectedSeries ? rax + (wager?.amount ?? 0) : rax;
   const friendActivity = selectedSeries ? buildFriendActivity(selectedSeries) : [];
 
   const openSheet = (seriesId: string, mode: SheetMode = "overview") => {
@@ -793,6 +903,7 @@ function PlayoffsPrototypeApp() {
     const existingWager = wagers[seriesId];
 
     setDraftWinner(existingPrediction?.winner ?? existingWager?.winner ?? "teamA");
+    setDraftLength(existingPrediction?.length ?? 6);
     setDraftWager(existingWager?.amount ?? 120);
     setSheet({ mode, seriesId });
   };
@@ -800,15 +911,15 @@ function PlayoffsPrototypeApp() {
   const closeSheet = () => setSheet(null);
 
   const confirmPrediction = () => {
-    if (!selectedSeries || !draftWinner) {
+    if (!selectedSeries || !draftWinner || !draftLength) {
       return;
     }
 
     setPredictions((current) => ({
       ...current,
-      [selectedSeries.id]: { winner: draftWinner },
+      [selectedSeries.id]: { length: draftLength, winner: draftWinner },
     }));
-    setToast(`Prediction saved: ${getWinnerLabel(selectedSeries, draftWinner)}`);
+    setToast(`Prediction saved: ${getWinnerCode(selectedSeries, draftWinner)} in ${draftLength}`);
     setSheet({ mode: "overview", seriesId: selectedSeries.id });
   };
 
@@ -820,12 +931,12 @@ function PlayoffsPrototypeApp() {
     const previousAmount = wagers[selectedSeries.id]?.amount ?? 0;
     const delta = draftWager - previousAmount;
 
-    if (delta > coins) {
-      setToast("Not enough Coins for that wager.");
+    if (delta > rax) {
+      setToast("Not enough Rax for that wager.");
       return;
     }
 
-    setCoins((current) => current - delta);
+    setRax((current) => current - delta);
     setWagers((current) => ({
       ...current,
       [selectedSeries.id]: {
@@ -833,7 +944,7 @@ function PlayoffsPrototypeApp() {
         winner: draftWinner,
       },
     }));
-    setToast(`Wagered ${draftWager} Coins on ${getWinnerLabel(selectedSeries, draftWinner)}`);
+    setToast(`Wagered ${draftWager} Rax on ${getWinnerCode(selectedSeries, draftWinner)}`);
     setSheet({ mode: "overview", seriesId: selectedSeries.id });
   };
 
@@ -875,8 +986,8 @@ function PlayoffsPrototypeApp() {
 
             <div className="shrink-0 rounded-full border border-amber-300/20 bg-amber-500/10 px-2.5 py-1.5">
               <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-100">
-                <CoinsIcon />
-                <span>{coins}</span>
+                <RaxIcon />
+                <span>{rax}</span>
               </div>
             </div>
           </div>
@@ -901,10 +1012,10 @@ function PlayoffsPrototypeApp() {
       </div>
 
       {selectedSeries ? (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-950/58 px-3 backdrop-blur-[1px]">
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-950/62 px-3">
           <button type="button" aria-label="Close series sheet" className="absolute inset-0" onClick={closeSheet} />
 
-          <SurfaceCard className="relative z-10 w-full max-w-[430px] rounded-b-none border-b-0 p-0">
+          <div className="animate-sheet-up relative z-10 w-full max-w-[430px] rounded-t-[28px] border border-white/10 border-b-0 bg-[#070b13] p-0 shadow-[0_-24px_70px_rgba(0,0,0,0.55)]">
             <div className="mx-auto mt-2 h-1.5 w-12 rounded-full bg-white/12" />
             <div className="max-h-[78dvh] overflow-y-auto px-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-3">
               <div className="flex items-start justify-between gap-3">
@@ -934,24 +1045,7 @@ function PlayoffsPrototypeApp() {
                 </button>
               </div>
 
-              <SurfaceCard style={getSeriesGradient(selectedSeries)} className="mt-3 p-3">
-                <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-                    Community
-                  </span>
-                  <p className="text-[13px] font-semibold text-white">
-                    {getCommunityFavorite(selectedSeries).percent}% picked {getCommunityFavorite(selectedSeries).label}
-                  </p>
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-                    Activity
-                  </span>
-                  <div className="flex flex-wrap gap-3 text-[11px] text-slate-200">
-                    <span>🔥 {selectedSeries.fansDiscussing}</span>
-                    <span>📊 {getEngagementSnapshot(selectedSeries).predictionsLabel}</span>
-                    <span>💰 {getEngagementSnapshot(selectedSeries).wagersLabel}</span>
-                  </div>
-                </div>
-              </SurfaceCard>
+              <CommunitySplit series={selectedSeries} />
 
               <div className="mt-2.5 grid grid-cols-[1.25fr_1fr_1fr] gap-2">
                 <ActionButton
@@ -963,32 +1057,32 @@ function PlayoffsPrototypeApp() {
                 />
                 <ActionButton
                   active={sheetMode === "wager"}
-                  icon={<CoinsIcon />}
+                  icon={<RaxIcon />}
                   label="Wager"
                   onClick={() => setSheet({ mode: "wager", seriesId: selectedSeries.id })}
                 />
-                <ActionButton icon={<ChatIcon />} label="Open Thread" onClick={openThread} />
+                <ActionButton icon={<ChatIcon />} label="Open Thread" onClick={openThread} variant="thread" />
               </div>
 
               {prediction || wager ? (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {prediction ? (
                     <span className="rounded-full border border-sky-400/20 bg-sky-500/10 px-2 py-1 text-[10px] font-semibold text-sky-100">
-                      ✓ Your pick: {getWinnerLabel(selectedSeries, prediction.winner)}
+                      ✓ Your pick: {getWinnerCode(selectedSeries, prediction.winner)} in {prediction.length}
                     </span>
                   ) : null}
                   {wager ? (
                     <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-2 py-1 text-[10px] font-semibold text-amber-100">
-                      {wager.amount} Coins on {getWinnerLabel(selectedSeries, wager.winner)}
+                      {wager.amount} Rax on {getWinnerCode(selectedSeries, wager.winner)}
                     </span>
                   ) : null}
                 </div>
               ) : null}
 
               {sheetMode === "predict" ? (
-                <SurfaceCard className="mt-2.5 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Predict next result</p>
-                  <div className="mt-2 space-y-2">
+                <SheetCard className="mt-2.5 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Predict Series</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
                     {(["teamA", "teamB"] as const).map((side) => {
                       const slot = side === "teamA" ? selectedSeries.teamA : selectedSeries.teamB;
 
@@ -1005,9 +1099,10 @@ function PlayoffsPrototypeApp() {
                               : "border-white/10 bg-black/20",
                           )}
                         >
-                          <div className="flex items-center gap-2">
-                            <div className="min-w-0 flex-1">
-                              <TeamRow slot={slot} />
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <SlotAvatar slot={slot} />
+                              <span className="text-[13px] font-semibold text-white">{getSlotCode(slot)}</span>
                             </div>
                             {draftWinner === side ? (
                               <span className="shrink-0 rounded-full bg-sky-300 px-2 py-1 text-[9px] font-black uppercase tracking-[0.1em] text-slate-950">
@@ -1019,25 +1114,52 @@ function PlayoffsPrototypeApp() {
                       );
                     })}
                   </div>
+                  <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Series Length</p>
+                  <div className="mt-2 grid grid-cols-4 gap-2">
+                    {seriesLengthOptions.map((length) => (
+                      <button
+                        key={length}
+                        type="button"
+                        onClick={() => setDraftLength(length)}
+                        aria-pressed={draftLength === length}
+                        className={cx(
+                          "rounded-[14px] border px-2 py-2.5 text-[13px] font-semibold transition",
+                          draftLength === length
+                            ? "border-sky-300/45 bg-sky-500/15 text-sky-100"
+                            : "border-white/10 bg-black/20 text-slate-200",
+                        )}
+                      >
+                        {length}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="rounded-[14px] border border-emerald-400/16 bg-emerald-500/10 px-3 py-2 text-emerald-100">
+                      Correct winner: +{exactWinnerReward} Rax
+                    </div>
+                    <div className="rounded-[14px] border border-sky-400/16 bg-sky-500/10 px-3 py-2 text-sky-100">
+                      Exact length: +{exactLengthBonus} Rax
+                    </div>
+                  </div>
                   <button
                     type="button"
                     onClick={confirmPrediction}
-                    disabled={!draftWinner}
+                    disabled={!draftWinner || !draftLength}
                     className={cx(
                       "mt-3 w-full rounded-[16px] px-4 py-3 text-[13px] font-semibold transition",
-                      draftWinner
+                      draftWinner && draftLength
                         ? "bg-white text-slate-950 active:scale-[0.98]"
                         : "cursor-not-allowed bg-white/10 text-slate-500",
                     )}
                   >
                     {prediction ? "Update Prediction" : "Confirm Prediction"}
                   </button>
-                </SurfaceCard>
+                </SheetCard>
               ) : null}
 
               {sheetMode === "wager" ? (
-                <SurfaceCard className="mt-2.5 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Wager Coins</p>
+                <SheetCard className="mt-2.5 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Wager Rax</p>
                   <p className="mt-1 text-[11px] text-slate-400">Choose a side, then set the amount you want live on this series.</p>
                   <div className="mt-2 space-y-2">
                     {(["teamA", "teamB"] as const).map((side) => {
@@ -1099,7 +1221,7 @@ function PlayoffsPrototypeApp() {
                       Max
                     </button>
                   </div>
-                  <p className="mt-2 text-[11px] text-slate-400">Available: {coins} coins</p>
+                  <p className="mt-2 text-[11px] text-slate-400">Available: {rax} Rax</p>
                   <button
                     type="button"
                     onClick={confirmWager}
@@ -1113,10 +1235,10 @@ function PlayoffsPrototypeApp() {
                   >
                     {wager ? "Update Wager" : "Confirm Wager"}
                   </button>
-                </SurfaceCard>
+                </SheetCard>
               ) : null}
 
-              <SurfaceCard className="mt-2.5 p-3">
+              <SheetCard className="mt-2.5 p-3">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                     Friends Activity
@@ -1134,9 +1256,9 @@ function PlayoffsPrototypeApp() {
                     </div>
                   ))}
                 </div>
-              </SurfaceCard>
+              </SheetCard>
             </div>
-          </SurfaceCard>
+          </div>
         </div>
       ) : null}
     </main>
