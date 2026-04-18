@@ -874,8 +874,8 @@ function PlayoffsPrototypeApp() {
   const [toast, setToast] = useState<string | null>(null);
   const [sheet, setSheet] = useState<SheetState | null>(null);
   const [draftWinner, setDraftWinner] = useState<SlotSide | null>(null);
-  const [draftLength, setDraftLength] = useState<number>(6);
-  const [draftWager, setDraftWager] = useState<number>(120);
+  const [draftLength, setDraftLength] = useState<number | null>(6);
+  const [draftWager, setDraftWager] = useState<number | null>(120);
   const [predictions, setPredictions] = useState<Record<string, PredictionRecord>>({});
   const [wagers, setWagers] = useState<Record<string, WagerRecord>>({});
 
@@ -910,6 +910,34 @@ function PlayoffsPrototypeApp() {
 
   const closeSheet = () => setSheet(null);
 
+  const resetSeriesState = () => {
+    if (!selectedSeries) {
+      return;
+    }
+
+    const currentWager = wagers[selectedSeries.id];
+
+    if (currentWager) {
+      setRax((current) => current + currentWager.amount);
+    }
+
+    setPredictions((current) => {
+      const next = { ...current };
+      delete next[selectedSeries.id];
+      return next;
+    });
+    setWagers((current) => {
+      const next = { ...current };
+      delete next[selectedSeries.id];
+      return next;
+    });
+    setDraftWinner(null);
+    setDraftLength(null);
+    setDraftWager(null);
+    setSheet({ mode: "overview", seriesId: selectedSeries.id });
+    setToast("Series reset for demo.");
+  };
+
   const confirmPrediction = () => {
     if (!selectedSeries || !draftWinner || !draftLength) {
       return;
@@ -924,7 +952,7 @@ function PlayoffsPrototypeApp() {
   };
 
   const confirmWager = () => {
-    if (!selectedSeries || !draftWinner) {
+    if (!selectedSeries || !draftWinner || !draftWager) {
       return;
     }
 
@@ -1012,12 +1040,12 @@ function PlayoffsPrototypeApp() {
       </div>
 
       {selectedSeries ? (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-950/62 px-3">
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/62 px-3 py-6">
           <button type="button" aria-label="Close series sheet" className="absolute inset-0" onClick={closeSheet} />
 
-          <div className="animate-sheet-up relative z-10 w-full max-w-[430px] rounded-t-[28px] border border-white/10 border-b-0 bg-[#070b13] p-0 shadow-[0_-24px_70px_rgba(0,0,0,0.55)]">
+          <div className="animate-sheet-up relative z-10 max-h-[88dvh] w-full max-w-[400px] overflow-hidden rounded-[28px] border border-white/10 bg-[#070b13] p-0 shadow-[0_24px_80px_rgba(0,0,0,0.58)]">
             <div className="mx-auto mt-2 h-1.5 w-12 rounded-full bg-white/12" />
-            <div className="max-h-[78dvh] overflow-y-auto px-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-3">
+            <div className="max-h-[calc(88dvh-0.875rem)] overflow-y-auto px-3 pb-4 pt-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
@@ -1036,13 +1064,22 @@ function PlayoffsPrototypeApp() {
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={closeSheet}
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/10 bg-white/[0.05] text-slate-200"
-                >
-                  <XIcon />
-                </button>
+                <div className="flex shrink-0 items-start gap-2">
+                  <button
+                    type="button"
+                    onClick={resetSeriesState}
+                    className="mt-1 rounded-full px-1.5 py-1 text-[10px] font-semibold lowercase tracking-[0.02em] text-slate-500 transition hover:text-slate-300 active:scale-[0.98]"
+                  >
+                    ↺ reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeSheet}
+                    className="grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-white/[0.05] text-slate-200"
+                  >
+                    <XIcon />
+                  </button>
+                </div>
               </div>
 
               <CommunitySplit series={selectedSeries} />
@@ -1225,10 +1262,10 @@ function PlayoffsPrototypeApp() {
                   <button
                     type="button"
                     onClick={confirmWager}
-                    disabled={!draftWinner}
+                    disabled={!draftWinner || !draftWager}
                     className={cx(
                       "mt-3 w-full rounded-[16px] px-4 py-3 text-[13px] font-semibold transition",
-                      draftWinner
+                      draftWinner && draftWager
                         ? "bg-white text-slate-950 active:scale-[0.98]"
                         : "cursor-not-allowed bg-white/10 text-slate-500",
                     )}
